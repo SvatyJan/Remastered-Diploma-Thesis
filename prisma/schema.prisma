@@ -1,0 +1,78 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider          = "mysql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+  relationMode      = "prisma"
+}
+
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  name      String?
+  createdAt DateTime  @default(now())
+  characters Character[]
+}
+
+model Character {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  class     String
+  level     Int      @default(1)
+  xp        Int      @default(0)
+  stats     Json     // flexibilní stats
+  items     InventoryItem[]
+  quests    QuestProgress[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // logické vazby (vynucuje je Prisma, ne DB)
+  user User @relation(fields: [userId], references: [id])
+}
+
+model Item {
+  id        String   @id @default(cuid())
+  name      String
+  type      String
+  rarity    String
+  baseStats Json
+  stackable Boolean  @default(false)
+  createdAt DateTime @default(now())
+  inventory InventoryItem[]
+}
+
+model InventoryItem {
+  id          String    @id @default(cuid())
+  characterId String
+  itemId      String
+  qty         Int       @default(1)
+
+  character Character @relation(fields: [characterId], references: [id])
+  item      Item      @relation(fields: [itemId], references: [id])
+}
+
+model Quest {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  title       String
+  description String
+  createdAt   DateTime @default(now())
+  progress    QuestProgress[]
+}
+
+model QuestProgress {
+  id          String   @id @default(cuid())
+  characterId String
+  questId     String
+  state       String   // e.g. "not_started" | "in_progress" | "completed"
+  updatedAt   DateTime @updatedAt
+
+  character Character @relation(fields: [characterId], references: [id])
+  quest     Quest     @relation(fields: [questId], references: [id])
+
+  @@unique([characterId, questId])
+}
