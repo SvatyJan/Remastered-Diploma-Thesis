@@ -1,3 +1,4 @@
+// ---------- Generátor & datasource ----------
 generator client {
   provider = "prisma-client-js"
 }
@@ -9,70 +10,618 @@ datasource db {
   relationMode      = "prisma"
 }
 
+// ---------- ENUMS ----------
+enum RelationshipStatus {
+  friend
+  blocked
+}
+
+enum Rarity {
+  common
+  uncommon
+  rare
+  epic
+  legendary
+}
+
+enum GuildRole {
+  member
+  officer
+  leader
+}
+
+enum InviteStatus {
+  pending
+  accepted
+  declined
+  expired
+}
+
+enum PartyRole {
+  leader
+  member
+}
+
+enum Stacking {
+  stack
+  refresh
+  ignore
+}
+
+enum EffectType {
+  none
+  magic
+  physical
+  curse
+  poison
+  bleed
+}
+
+enum CombatStatus {
+  pending
+  active
+  finished
+  aborted
+}
+
+enum OriginType {
+  pvp
+  pve
+  duel
+  custom
+}
+
+enum ActionType {
+  move
+  attack
+  cast
+  use_item
+  wait
+  apply_effect
+  expire_effect
+  spawn
+  despawn
+  custom
+}
+
+// ---------- MODELS ----------
+model Ancestry {
+  id          BigInt      @id @default(autoincrement())
+  name        String      @unique @db.VarChar(64)
+  description String?
+  characters  Character[]
+  monsters    Monster[]
+
+  @@map("ancestry")
+}
+
 model User {
-  id        String    @id @default(cuid())
-  email     String    @unique
-  name      String?
-  createdAt DateTime  @default(now())
+  id          BigInt   @id @default(autoincrement())
+  username    String   @unique @db.VarChar(32)
+  password    String   @db.VarChar(255)
+  email       String   @unique @db.VarChar(255)
+  dateCreated DateTime @default(now()) @map("date_created")
+  isActive    Boolean  @default(true) @map("is_active")
+
   characters Character[]
+
+  @@map("user")
 }
 
 model Character {
-  id        String   @id @default(cuid())
-  userId    String
-  name      String
-  class     String
-  level     Int      @default(1)
-  xp        Int      @default(0)
-  stats     Json     // flexibilní stats
-  items     InventoryItem[]
-  quests    QuestProgress[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          BigInt   @id @default(autoincrement())
+  userId      BigInt?  @map("user_id")
+  ancestryId  BigInt   @map("ancestry_id")
+  name        String   @db.VarChar(64)
+  level       Int      @default(1)
+  xp          BigInt   @default(0)
+  isNpc       Boolean  @default(false) @map("is_npc")
+  dateCreated DateTime @default(now()) @map("date_created")
 
-  // logické vazby (vynucuje je Prisma, ne DB)
-  user User @relation(fields: [userId], references: [id])
+  imageId BigInt? @map("image_id")
+
+  // relations
+  user     User?    @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "fk_character_user")
+  ancestry Ancestry @relation(fields: [ancestryId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "fk_character_ancestry")
+  image    Image?   @relation(fields: [imageId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "fk_character_image")
+
+  // back-relations
+  relA         Relationship[]              @relation("RelA")
+  relB         Relationship[]              @relation("RelB")
+  inventories  CharacterInventory[]
+  equipment    CharacterEquipment[]
+  spellbook    CharacterSpellbook[]
+  loadouts     CharacterSpellbookLoadout[]
+  guildMember  GuildMember?
+  sentInvites  GuildInvite[]               @relation("GuildInviteInviter")
+  recvInvites  GuildInvite[]               @relation("GuildInviteInvitee")
+  professions  CharacterProfession[]
+  partyLeader  Party[]                     @relation("PartyLeader")
+  partyMembers PartyMember[]
+  partyInviter PartyInvite[]               @relation("PartyInviteInviter")
+  partyInvitee PartyInvite[]               @relation("PartyInviteInvitee")
+
+  // quest relations via join table
+  // (no direct field; use QuestMonster for lookup)
+
+  @@unique([userId, name], map: "uq_character_user_name")
+  @@index([userId], map: "idx_character_user")
+  @@index([ancestryId], map: "idx_character_ancestry")
+  @@map("character")
 }
 
-model Item {
-  id        String   @id @default(cuid())
-  name      String
-  type      String
-  rarity    String
-  baseStats Json
-  stackable Boolean  @default(false)
-  createdAt DateTime @default(now())
-  inventory InventoryItem[]
+model Relationship {
+  aId       BigInt             @map("a_id")
+  bId       BigInt             @map("b_id")
+  status    RelationshipStatus @default(friend)
+  createdAt DateTime           @default(now()) @map("created_at")
+
+  a Character @relation("RelA", fields: [aId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  b Character @relation("RelB", fields: [bId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([aId, bId])
+  @@map("relationship")
 }
 
-model InventoryItem {
-  id          String    @id @default(cuid())
-  characterId String
-  itemId      String
-  qty         Int       @default(1)
+model Monster {
+  id          BigInt  @id @default(autoincrement())
+  name        String  @unique @db.VarChar(64)
+  ancestryId  BigInt  @map("ancestry_id")
+  rarity      Rarity  @default(common)
+  description String?
 
-  character Character @relation(fields: [characterId], references: [id])
-  item      Item      @relation(fields: [itemId], references: [id])
+  imageId BigInt? @map("image_id")
+
+  ancestry Ancestry @relation(fields: [ancestryId], references: [id], onDelete: Restrict, onUpdate: Cascade, map: "fk_monster_ancestry")
+  image    Image?   @relation(fields: [imageId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "fk_monster_image")
+
+  quests QuestMonster[]
+
+  @@index([ancestryId], map: "idx_monster_ancestry")
+  @@index([rarity], map: "idx_monster_rarity")
+  @@map("monster")
 }
 
 model Quest {
-  id          String   @id @default(cuid())
-  code        String   @unique
-  title       String
-  description String
-  createdAt   DateTime @default(now())
-  progress    QuestProgress[]
+  id          BigInt   @id @default(autoincrement())
+  title       String   @db.VarChar(128)
+  description String?
+  dateCreated DateTime @default(now()) @map("date_created")
+
+  monsters QuestMonster[]
+
+  @@map("quest")
 }
 
-model QuestProgress {
-  id          String   @id @default(cuid())
-  characterId String
-  questId     String
-  state       String   // e.g. "not_started" | "in_progress" | "completed"
-  updatedAt   DateTime @updatedAt
+model QuestMonster {
+  questId   BigInt @map("quest_id")
+  monsterId BigInt @map("monster_id")
+  amount    Int    @default(1)
 
-  character Character @relation(fields: [characterId], references: [id])
-  quest     Quest     @relation(fields: [questId], references: [id])
+  quest   Quest   @relation(fields: [questId], references: [id], onDelete: Cascade)
+  monster Monster @relation(fields: [monsterId], references: [id], onDelete: Restrict)
 
-  @@unique([characterId, questId])
+  @@id([questId, monsterId])
+  @@map("quest_monster")
+}
+
+model Attribute {
+  id      BigInt  @id @default(autoincrement())
+  name    String  @unique @db.VarChar(64)
+  imageId BigInt? @map("image_id")
+
+  image          Image?                  @relation(fields: [imageId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "fk_attribute_image")
+  itemAttributes ItemTemplateAttribute[]
+
+  @@map("attribute")
+}
+
+model SlotType {
+  code String @id @db.VarChar(32)
+  name String @db.VarChar(64)
+
+  equipment CharacterEquipment[]
+  items     ItemTemplate[]
+
+  @@map("slot_type")
+}
+
+model ItemTemplate {
+  id           BigInt  @id @default(autoincrement())
+  name         String  @db.VarChar(128)
+  isConsumable Boolean @default(false) @map("is_consumable")
+  isEquipable  Boolean @default(false) @map("is_equipable")
+  slotCode     String? @map("slot_code") @db.VarChar(32)
+  rarity       Rarity  @default(common)
+  valueGold    Int     @default(0) @map("value_gold")
+  description  String?
+
+  imageId BigInt? @map("image_id")
+
+  slot  SlotType? @relation(fields: [slotCode], references: [code], onDelete: Restrict, onUpdate: Cascade)
+  image Image?    @relation(fields: [imageId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "fk_item_template_image")
+
+  attributes ItemTemplateAttribute[]
+  inventory  CharacterInventory[]
+
+  @@index([slotCode], map: "idx_itemtemplate_slot")
+  @@index([rarity], map: "idx_itemtemplate_rarity")
+  @@map("item_template")
+}
+
+model ItemTemplateAttribute {
+  itemTemplateId BigInt @map("item_template_id")
+  attributeId    BigInt @map("attribute_id")
+  value          Int
+
+  template  ItemTemplate @relation(fields: [itemTemplateId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  attribute Attribute    @relation(fields: [attributeId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([itemTemplateId, attributeId])
+  @@map("item_template_attribute")
+}
+
+model CharacterInventory {
+  id               BigInt   @id @default(autoincrement())
+  templateId       BigInt   @map("template_id")
+  ownerCharacterId BigInt   @map("owner_character_id")
+  amount           Int      @default(1)
+  dateCreated      DateTime @default(now()) @map("date_created")
+
+  template ItemTemplate        @relation(fields: [templateId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  owner    Character           @relation(fields: [ownerCharacterId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  equipped CharacterEquipment?
+
+  @@index([ownerCharacterId], map: "idx_inv_owner")
+  @@map("character_inventory")
+}
+
+model CharacterEquipment {
+  characterId          BigInt @map("character_id")
+  slotCode             String @map("slot_code") @db.VarChar(32)
+  characterInventoryId BigInt @unique @map("character_inventory_id")
+
+  character Character          @relation(fields: [characterId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  slot      SlotType           @relation(fields: [slotCode], references: [code], onDelete: Restrict, onUpdate: Cascade)
+  item      CharacterInventory @relation(fields: [characterInventoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([characterId, slotCode])
+  @@map("character_equipment")
+}
+
+model Spell {
+  id          BigInt  @id @default(autoincrement())
+  name        String  @unique @db.VarChar(128)
+  description String?
+  cooldown    Int     @default(0)
+  imageId     BigInt? @map("image_id")
+
+  image     Image?                      @relation(fields: [imageId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "fk_spell_image")
+  spellbook CharacterSpellbook[]
+  loadouts  CharacterSpellbookLoadout[]
+
+  @@map("spell")
+}
+
+model SpellSlotType {
+  code            String @id @db.VarChar(32)
+  name            String @db.VarChar(64)
+  maxPerCharacter Int    @default(1) @map("max_per_character")
+
+  loadouts CharacterSpellbookLoadout[]
+
+  @@map("spell_slot_type")
+}
+
+model CharacterSpellbook {
+  characterId BigInt   @map("character_id")
+  spellId     BigInt   @map("spell_id")
+  spellLevel  Int      @default(1) @map("spell_level")
+  learnedAt   DateTime @default(now()) @map("learned_at")
+
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  spell     Spell     @relation(fields: [spellId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([characterId, spellId])
+  @@map("character_spellbook")
+}
+
+model CharacterSpellbookLoadout {
+  characterId BigInt @map("character_id")
+  slotCode    String @map("slot_code") @db.VarChar(32)
+  spellId     BigInt @map("spell_id")
+
+  character Character     @relation(fields: [characterId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  slot      SpellSlotType @relation(fields: [slotCode], references: [code], onDelete: Restrict, onUpdate: Cascade)
+  spell     Spell         @relation(fields: [spellId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([characterId, slotCode])
+  @@map("character_spellbook_loadout")
+}
+
+model Image {
+  id          BigInt   @id @default(autoincrement())
+  path        String   @db.VarChar(512)
+  width       Int?
+  height      Int?
+  dateCreated DateTime @default(now()) @map("date_created")
+
+  // back-relations
+  characters Character[]
+  monsters   Monster[]
+  items      ItemTemplate[]
+  spells     Spell[]
+  attributes Attribute[]
+
+  @@unique([path], map: "uq_image_path")
+  @@map("image")
+}
+
+model Guild {
+  id          BigInt   @id @default(autoincrement())
+  name        String   @unique @db.VarChar(64)
+  description String?
+  maxMembers  Int      @default(50) @map("max_members")
+  dateCreated DateTime @default(now()) @map("date_created")
+
+  members GuildMember[]
+  invites GuildInvite[]
+
+  @@map("guild")
+}
+
+model GuildMember {
+  guildId     BigInt
+  characterId BigInt
+  role        GuildRole @default(member)
+  joinedAt    DateTime  @default(now()) @map("joined_at")
+
+  guild     Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([guildId, characterId])
+  @@unique([characterId], map: "uq_guild_member_character")
+  @@map("guild_member")
+}
+
+model GuildInvite {
+  id        BigInt       @id @default(autoincrement())
+  guildId   BigInt       @map("guild_id")
+  inviterId BigInt       @map("inviter_id")
+  inviteeId BigInt       @map("invitee_id")
+  status    InviteStatus @default(pending)
+  createdAt DateTime     @default(now()) @map("created_at")
+  expiresAt DateTime?
+
+  guild   Guild     @relation(fields: [guildId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  inviter Character @relation("GuildInviteInviter", fields: [inviterId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  invitee Character @relation("GuildInviteInvitee", fields: [inviteeId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([guildId, inviteeId], map: "uq_guild_invite_unique")
+  @@map("guild_invite")
+}
+
+model Profession {
+  id          BigInt   @id @default(autoincrement())
+  name        String   @unique @db.VarChar(64)
+  description String?
+  dateCreated DateTime @default(now()) @map("date_created")
+
+  members CharacterProfession[]
+
+  @@map("profession")
+}
+
+model CharacterProfession {
+  characterId  BigInt @map("character_id")
+  professionId BigInt @map("profession_id")
+  skill        Int    @default(0)
+
+  character  Character  @relation(fields: [characterId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  profession Profession @relation(fields: [professionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([characterId, professionId])
+  @@map("character_profession")
+}
+
+// ---------- PARTY ----------
+model Party {
+  id          BigInt   @id @default(autoincrement())
+  name        String?  @db.VarChar(64)
+  leaderId    BigInt   @map("leader_id")
+  maxMembers  Int      @default(5) @map("max_members")
+  dateCreated DateTime @default(now()) @map("date_created")
+
+  leader  Character     @relation("PartyLeader", fields: [leaderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  members PartyMember[]
+  invites PartyInvite[]
+
+  @@map("party")
+}
+
+model PartyMember {
+  partyId     BigInt    @map("party_id")
+  characterId BigInt    @map("character_id")
+  role        PartyRole @default(member)
+  joinedAt    DateTime  @default(now()) @map("joined_at")
+
+  party     Party     @relation(fields: [partyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([partyId, characterId])
+  @@unique([characterId], map: "uq_party_member_character")
+  @@map("party_member")
+}
+
+model PartyInvite {
+  id        BigInt       @id @default(autoincrement())
+  partyId   BigInt       @map("party_id")
+  inviterId BigInt       @map("inviter_id")
+  inviteeId BigInt       @map("invitee_id")
+  status    InviteStatus @default(pending)
+  createdAt DateTime     @default(now()) @map("created_at")
+  expiresAt DateTime?
+
+  party   Party     @relation(fields: [partyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  inviter Character @relation("PartyInviteInviter", fields: [inviterId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  invitee Character @relation("PartyInviteInvitee", fields: [inviteeId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([partyId, inviteeId], map: "uq_party_invite_unique")
+  @@map("party_invite")
+}
+
+// ---------- EFFECTS / COMBAT ----------
+model Effect {
+  id                    BigInt     @id @default(autoincrement())
+  code                  String     @unique @db.VarChar(64)
+  name                  String     @db.VarChar(128)
+  description           String?
+  stacking              Stacking   @default(stack)
+  maxStacks             Int        @default(99) @map("max_stacks")
+  effectType            EffectType @default(none) @map("effect_type")
+  defaultDurationRounds Int?       @map("default_duration_rounds")
+  dataJson              Json?      @map("data_json")
+
+  combatEffects CombatEffect[]
+
+  @@map("effect")
+}
+
+model Combat {
+  id               BigInt       @id @default(autoincrement())
+  status           CombatStatus @default(pending)
+  boardWidth       Int          @default(8) @map("board_width")
+  boardHeight      Int          @default(8) @map("board_height")
+  currentRound     Int          @default(1) @map("current_round")
+  currentTurnIndex Int          @default(0) @map("current_turn_index")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  startedAt        DateTime?
+  endedAt          DateTime?
+  originType       OriginType   @default(custom) @map("origin_type")
+  originMeta       Json?        @map("origin_meta")
+
+  teams        CombatTeam[]
+  participants CombatParticipant[]
+  turns        CombatTurn[]
+  effects      CombatEffect[]
+  events       CombatEvent[]
+  result       CombatResult?
+
+  @@map("combat")
+}
+
+model CombatTeam {
+  combatId BigInt
+  team     Int
+
+  combat Combat @relation(fields: [combatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  participants CombatParticipant[]
+
+  @@id([combatId, team])
+  @@map("combat_team")
+}
+
+model CombatParticipant {
+  id           BigInt  @id @default(autoincrement())
+  combatId     BigInt  @map("combat_id")
+  team         Int
+  entityId     BigInt  @map("entity_id")
+  name         String  @db.VarChar(128)
+  isAi         Boolean @default(false) @map("is_ai")
+  tileX        Int     @map("tile_x")
+  tileY        Int     @map("tile_y")
+  hpCurrent    Int     @map("hp_current")
+  initiative   Int     @default(0)
+  snapshotJson Json    @map("snapshot_json")
+
+  combat  Combat     @relation(fields: [combatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  // composite relation to CombatTeam (combat_id, team)
+  teamRef CombatTeam @relation(fields: [combatId, team], references: [combatId, team], onDelete: Cascade, onUpdate: Cascade)
+
+  turnsAsActor    CombatTurn[]
+  effectsAsTarget CombatEffect[] @relation("EffectTarget")
+  effectsAsSource CombatEffect[] @relation("EffectSource")
+  eventsAsActor   CombatEvent[]  @relation("EventActor")
+  eventsAsTarget  CombatEvent[]  @relation("EventTarget")
+
+  @@index([combatId], map: "idx_cp_combat")
+  @@index([combatId, team], map: "idx_cp_team")
+  @@index([entityId], map: "idx_cp_entity")
+  @@map("combat_participant")
+}
+
+model CombatTurn {
+  combatId      BigInt  @map("combat_id")
+  participantId BigInt  @map("participant_id")
+  round         Int
+  turnIndex     Int     @map("turn_index")
+  hasActed      Boolean @default(false) @map("has_acted")
+
+  combat      Combat            @relation(fields: [combatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  participant CombatParticipant @relation(fields: [participantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([combatId, round, turnIndex])
+  @@index([participantId], map: "idx_ct_participant")
+  @@map("combat_turn")
+}
+
+model CombatEffect {
+  id                  BigInt    @id @default(autoincrement())
+  combatId            BigInt    @map("combat_id")
+  participantId       BigInt    @map("participant_id")
+  sourceParticipantId BigInt?   @map("source_participant_id")
+  effectId            BigInt    @map("effect_id")
+  stacks              Int       @default(1)
+  expiresRound        Int?      @map("expires_round")
+  expiresAt           DateTime?
+  dataJson            Json?     @map("data_json")
+
+  combat Combat             @relation(fields: [combatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  target CombatParticipant  @relation("EffectTarget", fields: [participantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  source CombatParticipant? @relation("EffectSource", fields: [sourceParticipantId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  effect Effect             @relation(fields: [effectId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([combatId], map: "idx_ce_combat")
+  @@index([participantId], map: "idx_ce_target")
+  @@index([combatId, effectId], map: "idx_ce_code")
+  @@map("combat_effect")
+}
+
+model CombatEvent {
+  id                  BigInt     @id @default(autoincrement())
+  combatId            BigInt     @map("combat_id")
+  seqNo               BigInt     @map("seq_no")
+  createdAt           DateTime   @default(now()) @map("created_at")
+  actorParticipantId  BigInt?    @map("actor_participant_id")
+  targetParticipantId BigInt?    @map("target_participant_id")
+  actionType          ActionType @map("action_type")
+
+  fromX   Int?  @map("from_x")
+  fromY   Int?  @map("from_y")
+  toX     Int?  @map("to_x")
+  toY     Int?  @map("to_y")
+  damage  Int?
+  healing Int?
+  payload Json? @map("payload_json")
+
+  combat Combat             @relation(fields: [combatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  actor  CombatParticipant? @relation("EventActor", fields: [actorParticipantId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  target CombatParticipant? @relation("EventTarget", fields: [targetParticipantId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([combatId, seqNo], map: "uq_event_seq")
+  @@index([combatId, actorParticipantId], map: "idx_event_actor")
+  @@index([combatId, targetParticipantId], map: "idx_event_target")
+  @@index([combatId, actionType], map: "idx_event_type")
+  @@map("combat_event")
+}
+
+model CombatResult {
+  combatId    BigInt @id @map("combat_id")
+  winningTeam Int?
+  summaryJson Json?  @map("summary_json")
+
+  combat Combat @relation(fields: [combatId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("combat_result")
 }

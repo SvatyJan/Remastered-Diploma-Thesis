@@ -2,7 +2,9 @@
   "name": "dtrpg",
   "version": "0.1.0",
   "private": true,
-  "prisma": { "seed": "node prisma/seed.js" },
+  "prisma": {
+    "seed": "node prisma/seed.js"
+  },
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build --turbopack",
@@ -15,7 +17,7 @@
     "seed": "node prisma/seed.js"
   },
   "dependencies": {
-    "@prisma/client": "^6.14.0",
+    "@prisma/client": "^6.15.0",
     "next": "15.5.0",
     "react": "19.1.0",
     "react-dom": "19.1.0"
