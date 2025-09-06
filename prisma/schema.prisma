@@ -229,6 +229,7 @@ model SlotType {
 model ItemTemplate {
   id           BigInt  @id @default(autoincrement())
   name         String  @db.VarChar(128)
+  slug         String  @unique
   isConsumable Boolean @default(false) @map("is_consumable")
   isEquipable  Boolean @default(false) @map("is_equipable")
   slotCode     String? @map("slot_code") @db.VarChar(32)
@@ -292,6 +293,7 @@ model CharacterEquipment {
 model Spell {
   id          BigInt  @id @default(autoincrement())
   name        String  @unique @db.VarChar(128)
+  slug        String  @unique
   description String?
   cooldown    Int     @default(0)
   imageId     BigInt? @map("image_id")

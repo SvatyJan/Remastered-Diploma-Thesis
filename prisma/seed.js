@@ -141,36 +141,36 @@ async function main() {
   // Pozn.: currency items nejsou consumable / equipable, slouží jen pro účetnictví.
   const itemsData = [
     // měny
-    { name: 'Gold Coin', isConsumable: false, isEquipable: false, slotCode: null, rarity: 'common', valueGold: 1, description: 'Standard currency.' },
-    { name: 'Diamond',   isConsumable: false, isEquipable: false, slotCode: null, rarity: 'epic',   valueGold: 0, description: 'Premium currency.' },
+    { name: 'Gold Coin', slug: it.name.toLowerCase().replace(/\s+/g, '-'), isConsumable: false, isEquipable: false, slotCode: null, rarity: 'common', valueGold: 1, description: 'Standard currency.' },
+    { name: 'Diamond', slug: it.name.toLowerCase().replace(/\s+/g, '-'), isConsumable: false, isEquipable: false, slotCode: null, rarity: 'epic',   valueGold: 0, description: 'Premium currency.' },
 
     // zbraně
-    { name: 'Rusty Sword',  isConsumable: false, isEquipable: true, slotCode: 'weapon', rarity: 'common',   valueGold: 5,  description: null, stats: { strength: 1 } },
-    { name: 'Iron Sword',   isConsumable: false, isEquipable: true, slotCode: 'weapon', rarity: 'common',   valueGold: 12, description: null, stats: { strength: 2 } },
-    { name: 'Steel Axe',    isConsumable: false, isEquipable: true, slotCode: 'weapon', rarity: 'uncommon', valueGold: 30, description: null, stats: { strength: 3 } },
-    { name: 'Wizard Staff', isConsumable: false, isEquipable: true, slotCode: 'weapon', rarity: 'uncommon', valueGold: 28, description: null, stats: { intelligence: 3 } },
+    { name: 'Rusty Sword', slug: it.name.toLowerCase().replace(/\s+/g, '-'), isConsumable: false, isEquipable: true, slotCode: 'weapon', rarity: 'common',   valueGold: 5,  description: null, stats: { strength: 1 } },
+    { name: 'Iron Sword', slug: it.name.toLowerCase().replace(/\s+/g, '-'), isConsumable: false, isEquipable: true, slotCode: 'weapon', rarity: 'common',   valueGold: 12, description: null, stats: { strength: 2 } },
+    { name: 'Steel Axe', slug: it.name.toLowerCase().replace(/\s+/g, '-'), isConsumable: false, isEquipable: true, slotCode: 'weapon', rarity: 'uncommon', valueGold: 30, description: null, stats: { strength: 3 } },
+    { name: 'Wizard Staff', slug: it.name.toLowerCase().replace(/\s+/g, '-'), isConsumable: false, isEquipable: true, slotCode: 'weapon', rarity: 'uncommon', valueGold: 28, description: null, stats: { intelligence: 3 } },
 
     // brnění/šperky
-    { name: 'Leather Cap',   isConsumable: false, isEquipable: true, slotCode: 'head',   rarity: 'common',   valueGold: 6,  description: null, stats: { armor: 1, agility: 1 } },
-    { name: 'Leather Tunic', isConsumable: false, isEquipable: true, slotCode: 'chest',  rarity: 'common',   valueGold: 10, description: null, stats: { armor: 2 } },
-    { name: 'Chainmail',     isConsumable: false, isEquipable: true, slotCode: 'chest',  rarity: 'uncommon', valueGold: 40, description: null, stats: { armor: 4 } },
-    { name: 'Wizard Hat',    isConsumable: false, isEquipable: true, slotCode: 'head',   rarity: 'uncommon', valueGold: 35, description: null, stats: { intelligence: 2, magicresist: 1 } },
-    { name: 'Ruby Ring',     isConsumable: false, isEquipable: true, slotCode: 'ring',   rarity: 'rare',     valueGold: 80, description: null, stats: { strength: 1, agility: 1 } },
-    { name: 'Amulet of Wits',isConsumable: false, isEquipable: true, slotCode: 'amulet', rarity: 'rare',     valueGold: 90, description: null, stats: { intelligence: 2 } },
+    { name: 'Leather Cap', slug: it.name.toLowerCase().replace(/\s+/g, '-'), isConsumable: false, isEquipable: true, slotCode: 'head',   rarity: 'common',   valueGold: 6,  description: null, stats: { armor: 1, agility: 1 } },
+    { name: 'Leather Tunic', slug: it.name.toLowerCase().replace(/\s+/g, '-'), isConsumable: false, isEquipable: true, slotCode: 'chest',  rarity: 'common',   valueGold: 10, description: null, stats: { armor: 2 } },
+    { name: 'Chainmail', slug: it.name.toLowerCase().replace(/\s+/g, '-'), isConsumable: false, isEquipable: true, slotCode: 'chest',  rarity: 'uncommon', valueGold: 40, description: null, stats: { armor: 4 } },
+    { name: 'Wizard Hat', slug: it.name.toLowerCase().replace(/\s+/g, '-'), isConsumable: false, isEquipable: true, slotCode: 'head',   rarity: 'uncommon', valueGold: 35, description: null, stats: { intelligence: 2, magicresist: 1 } },
+    { name: 'Ruby Ring', slug: it.name.toLowerCase().replace(/\s+/g, '-'), isConsumable: false, isEquipable: true, slotCode: 'ring',   rarity: 'rare',     valueGold: 80, description: null, stats: { strength: 1, agility: 1 } },
+    { name: 'Amulet of Wits', slug: it.name.toLowerCase().replace(/\s+/g, '-'), isConsumable: false, isEquipable: true, slotCode: 'amulet', rarity: 'rare',     valueGold: 90, description: null, stats: { intelligence: 2 } },
 
     // offhand / štíty
-    { name: 'Wooden Shield', isConsumable: false, isEquipable: true, slotCode: 'offhand', rarity: 'common', valueGold: 8, description: null, stats: { armor: 2 } },
-    { name: 'Kite Shield',   isConsumable: false, isEquipable: true, slotCode: 'offhand', rarity: 'uncommon', valueGold: 26, description: null, stats: { armor: 4, magicresist: 1 } },
+    { name: 'Wooden Shield', slug: it.name.toLowerCase().replace(/\s+/g, '-'), isConsumable: false, isEquipable: true, slotCode: 'offhand', rarity: 'common', valueGold: 8, description: null, stats: { armor: 2 } },
+    { name: 'Kite Shield', slug: it.name.toLowerCase().replace(/\s+/g, '-'), isConsumable: false, isEquipable: true, slotCode: 'offhand', rarity: 'uncommon', valueGold: 26, description: null, stats: { armor: 4, magicresist: 1 } },
 
     // consumables
-    { name: 'Health Potion (Minor)', isConsumable: true, isEquipable: false, slotCode: null, rarity: 'common', valueGold: 5, description: 'Restores health.' },
-    { name: 'Health Potion (Major)', isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 18, description: 'Restores more health.' },
-    { name: 'Stamina Elixir',        isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 14, description: 'Boosts agility briefly.' },
-    { name: 'Intellect Tonic',       isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 14, description: 'Boosts intelligence briefly.' },
+    { name: 'Health Potion (Minor)', slug: it.name.toLowerCase().replace(/\s+/g, '-'), isConsumable: true, isEquipable: false, slotCode: null, rarity: 'common', valueGold: 5, description: 'Restores health.' },
+    { name: 'Health Potion (Major)', slug: it.name.toLowerCase().replace(/\s+/g, '-'), isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 18, description: 'Restores more health.' },
+    { name: 'Stamina Elixir', slug: it.name.toLowerCase().replace(/\s+/g, '-'), isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 14, description: 'Boosts agility briefly.' },
+    { name: 'Intellect Tonic', slug: it.name.toLowerCase().replace(/\s+/g, '-'), isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 14, description: 'Boosts intelligence briefly.' },
 
     // „lepší“ zbraň/gear
-    { name: 'Elven Longsword', isConsumable: false, isEquipable: true, slotCode: 'weapon', rarity: 'rare', valueGold: 120, description: null, stats: { strength: 4, agility: 2 } },
-    { name: 'Runed Circlet',   isConsumable: false, isEquipable: true, slotCode: 'head',   rarity: 'epic', valueGold: 200, description: null, stats: { intelligence: 4, magicresist: 2 } },
+    { name: 'Elven Longsword', slug: it.name.toLowerCase().replace(/\s+/g, '-'), isConsumable: false, isEquipable: true, slotCode: 'weapon', rarity: 'rare', valueGold: 120, description: null, stats: { strength: 4, agility: 2 } },
+    { name: 'Runed Circlet', slug: it.name.toLowerCase().replace(/\s+/g, '-'), isConsumable: false, isEquipable: true, slotCode: 'head',   rarity: 'epic', valueGold: 200, description: null, stats: { intelligence: 4, magicresist: 2 } },
   ];
 
   // helper pro mapování názvů → attributeId
@@ -208,6 +208,7 @@ async function main() {
       return db.itemTemplate.create({
         data: {
           name: it.name,
+          slug: it.name.toLowerCase().replace(/\s+/g, '-'),
           isConsumable: it.isConsumable,
           isEquipable: it.isEquipable,
           slotCode: it.slotCode ? slotByCode[it.slotCode]?.code ?? null : null,
