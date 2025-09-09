@@ -17,7 +17,9 @@ export async function verifyPassword(pw: string, hash: string) {
 
 export async function createSession(userId: string) {
   // velmi jednoduché – pro produkci vynes do tabulky Session a použi náhodný token
-  cookies().set(SESSION_COOKIE, userId, {
+  (await
+        // velmi jednoduché – pro produkci vynes do tabulky Session a použi náhodný token
+        cookies()).set(SESSION_COOKIE, userId, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
@@ -26,12 +28,14 @@ export async function createSession(userId: string) {
   });
 }
 
-export function destroySession() {
-  cookies().delete(SESSION_COOKIE);
+export async function destroySession() {
+  (await cookies()).delete(SESSION_COOKIE);
 }
 
 export const getCurrentUser = cache(async () => {
-  const id = cookies().get(SESSION_COOKIE)?.value;
+  const id = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!id) return null;
-  return prisma.user.findUnique({ where: { id } });
+  const numericId = Number(id);
+  if (isNaN(numericId)) return null;
+  return prisma.user.findUnique({ where: { id: numericId } });
 });

@@ -25,7 +25,19 @@ export async function createCharacter(formData: FormData) {
   const gold = await prisma.itemTemplate.findUniqueOrThrow({ where: { slug: "gold-coin" } });
   const starterWeapon = await prisma.itemTemplate.findUnique({ where: { slug: "rusty-sword" } });
 
-    await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx: {
+        character: {
+          create: (arg0: {
+            data: {
+              name: string; userId: any; // BigInt
+              ancestryId: bigint; // BigInt (viz Zod níže)
+              level: number; xp: bigint; // BigInt literal!
+              // ✅ správný nested create pro CharacterInventory
+              inventories: { create: { amount: number; template: { connect: { id: any; }; }; }[]; };
+            };
+          }) => any;
+        };
+      }) => {
       await tx.character.create({
         data: {
           name,
