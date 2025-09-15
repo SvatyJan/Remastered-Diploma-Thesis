@@ -1,16 +1,17 @@
-# How to install
-docker compose down -v
-docker compose up -d
-npx prisma generate
-npx prisma migrate dev --name init
-npm run seed
+﻿# How to install
+npm install
 
-# How to run
-docker compose up -d
+# Backend
+cd server
+npm install
 npm run dev
+# API at http://localhost:4000/api/health
 
-# Links
-http://localhost:3000
-http://localhost:3000/api/characters
+# Frontend
+cd ..
+npm run dev
+# App at http://localhost:8000
 
-https://lovable.dev/projects/b6d78e19-5de2-4407-b047-cb5bac9fb05f
+# Database (optional, if/when needed)
+docker compose up -d
+# Configure .env with DATABASE_URL if using Prisma later
