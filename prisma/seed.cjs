@@ -1,0 +1,202 @@
+/* eslint-disable no-console */
+const { PrismaClient } = require('@prisma/client');
+const db = new PrismaClient();
+
+async function main() {
+  // --- 1) KATALOGY: Attributes, Ancestry, Professions, Slot types ---
+  const attributeNames = [
+    'health',
+    'strength',
+    'agility',
+    'intelligence',
+    'armor',
+    'magic resist',
+  ];
+
+  const [attributes, ancestries, professions, slotTypes] = await Promise.all([
+    Promise.all(
+      attributeNames.map((name) =>
+        db.attribute.upsert({ where: { name }, update: {}, create: { name } })
+      )
+    ),
+    Promise.all(
+      ['human', 'elf', 'dwarf', 'orc', 'merfolk'].map((name) =>
+        db.ancestry.upsert({ where: { name }, update: {}, create: { name, description: null } })
+      )
+    ),
+    Promise.all(
+      ['Alchemy', 'Blacksmithing', 'Tailoring'].map((name) =>
+        db.profession.upsert({ where: { name }, update: {}, create: { name, description: null } })
+      )
+    ),
+    Promise.all(
+      [
+        { code: 'weapon', name: 'Weapon' },
+        { code: 'offhand', name: 'Off-hand' },
+        { code: 'head', name: 'Head' },
+        { code: 'chest', name: 'Chest' },
+        { code: 'legs', name: 'Legs' },
+        { code: 'ring', name: 'Ring' },
+        { code: 'amulet', name: 'Amulet' },
+      ].map((s) => db.slotType.upsert({ where: { code: s.code }, update: { name: s.name }, create: s }))
+    ),
+  ]);
+
+  const attrByName = Object.fromEntries(attributes.map((a) => [a.name, a]));
+  const ancestryByName = Object.fromEntries(ancestries.map((a) => [a.name, a]));
+  const slotByCode = Object.fromEntries(slotTypes.map((s) => [s.code, s]));
+
+  // --- 2) Monsters ---
+  const monstersData = [
+    { name: 'Goblin', ancestryName: 'orc', rarity: 'common', description: 'Small and pesky.' },
+    { name: 'Skeleton', ancestryName: 'human', rarity: 'common', description: 'Reanimated bones.' },
+    { name: 'Merrow', ancestryName: 'merfolk', rarity: 'uncommon', description: 'Amphibious raider.' },
+  ];
+  for (const m of monstersData) {
+    await db.monster.upsert({
+      where: { name: m.name },
+      update: {},
+      create: {
+        name: m.name,
+        ancestryId: ancestryByName[m.ancestryName].id,
+        rarity: m.rarity,
+        description: m.description,
+      },
+    });
+  }
+
+  // --- 3) Spells ---
+  const spellNames = [
+    'Passive: Double Attack',
+    'Passive: Double Cast',
+    'Fireball',
+    'Cleave',
+    'Shiv',
+    'Ice Lance',
+    'Arcane Bolt',
+    'Heal',
+    'Shield',
+    'Poison Dagger',
+  ];
+  const slugify = (s) => s.toLowerCase().replace(/\s+/g, '-');
+  await Promise.all(
+    spellNames.map((name) =>
+      db.spell.upsert({
+        where: { name },
+        update: {},
+        create: { name, slug: slugify(name), description: null, cooldown: 0 },
+      })
+    )
+  );
+
+  // --- 4) Effects ---
+  const effectsData = [
+    { code: 'double_strike', name: 'Double Strike', stacking: 'refresh', effectType: 'physical' },
+    { code: 'double_cast', name: 'Double Cast', stacking: 'refresh', effectType: 'magic' },
+    { code: 'hot', name: 'Heal over Time', stacking: 'stack', effectType: 'magic' },
+    { code: 'dot', name: 'Damage over Time', stacking: 'stack', effectType: 'poison' },
+  ];
+  await Promise.all(
+    effectsData.map((e) =>
+      db.effect.upsert({
+        where: { code: e.code },
+        update: {},
+        create: { code: e.code, name: e.name, description: null, stacking: e.stacking, effectType: e.effectType },
+      })
+    )
+  );
+
+  // --- 5) Items ---
+  const itemsData = [
+    { name: 'Gold Coin', isConsumable: false, isEquipable: false, slotCode: null, rarity: 'common', valueGold: 1, description: 'Standard currency.' },
+    { name: 'Diamond', isConsumable: false, isEquipable: false, slotCode: null, rarity: 'epic', valueGold: 0, description: 'Premium currency.' },
+    { name: 'Rusty Sword', isConsumable: false, isEquipable: true, slotCode: 'weapon', rarity: 'common', valueGold: 5, description: null, stats: { strength: 1 } },
+    { name: 'Iron Sword', isConsumable: false, isEquipable: true, slotCode: 'weapon', rarity: 'common', valueGold: 12, description: null, stats: { strength: 2 } },
+    { name: 'Steel Axe', isConsumable: false, isEquipable: true, slotCode: 'weapon', rarity: 'uncommon', valueGold: 30, description: null, stats: { strength: 3 } },
+    { name: 'Wizard Staff', isConsumable: false, isEquipable: true, slotCode: 'weapon', rarity: 'uncommon', valueGold: 28, description: null, stats: { intelligence: 3 } },
+    { name: 'Leather Cap', isConsumable: false, isEquipable: true, slotCode: 'head', rarity: 'common', valueGold: 6, description: null, stats: { armor: 1, agility: 1 } },
+    { name: 'Leather Tunic', isConsumable: false, isEquipable: true, slotCode: 'chest', rarity: 'common', valueGold: 10, description: null, stats: { armor: 2 } },
+    { name: 'Chainmail', isConsumable: false, isEquipable: true, slotCode: 'chest', rarity: 'uncommon', valueGold: 40, description: null, stats: { armor: 4 } },
+    { name: 'Wizard Hat', isConsumable: false, isEquipable: true, slotCode: 'head', rarity: 'uncommon', valueGold: 35, description: null, stats: { intelligence: 2, magicresist: 1 } },
+    { name: 'Ruby Ring', isConsumable: false, isEquipable: true, slotCode: 'ring', rarity: 'rare', valueGold: 80, description: null, stats: { strength: 1, agility: 1 } },
+    { name: 'Amulet of Wits', isConsumable: false, isEquipable: true, slotCode: 'amulet', rarity: 'rare', valueGold: 90, description: null, stats: { intelligence: 2 } },
+    { name: 'Wooden Shield', isConsumable: false, isEquipable: true, slotCode: 'offhand', rarity: 'common', valueGold: 8, description: null, stats: { armor: 2 } },
+    { name: 'Kite Shield', isConsumable: false, isEquipable: true, slotCode: 'offhand', rarity: 'uncommon', valueGold: 26, description: null, stats: { armor: 4, magicresist: 1 } },
+    { name: 'Health Potion (Minor)', isConsumable: true, isEquipable: false, slotCode: null, rarity: 'common', valueGold: 5, description: 'Restores health.' },
+    { name: 'Health Potion (Major)', isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 18, description: 'Restores more health.' },
+    { name: 'Stamina Elixir', isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 14, description: 'Boosts agility briefly.' },
+    { name: 'Intellect Tonic', isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 14, description: 'Boosts intelligence briefly.' },
+    { name: 'Elven Longsword', isConsumable: false, isEquipable: true, slotCode: 'weapon', rarity: 'rare', valueGold: 120, description: null, stats: { strength: 4, agility: 2 } },
+    { name: 'Runed Circlet', isConsumable: false, isEquipable: true, slotCode: 'head', rarity: 'epic', valueGold: 200, description: null, stats: { intelligence: 4, magicresist: 2 } },
+  ];
+
+  const statToAttributeId = (k) => {
+    switch (k) {
+      case 'health': return attrByName['health'].id;
+      case 'strength': return attrByName['strength'].id;
+      case 'agility': return attrByName['agility'].id;
+      case 'intelligence': return attrByName['intelligence'].id;
+      case 'armor': return attrByName['armor'].id;
+      case 'magicresist': return attrByName['magic resist'].id;
+      default: return null;
+    }
+  };
+
+  for (const it of itemsData) {
+    const created = await db.itemTemplate.upsert({
+      where: { id: 0 },
+      update: {},
+      create: {
+        name: it.name,
+        slug: it.name.toLowerCase().replace(/\s+/g, '-'),
+        isConsumable: it.isConsumable,
+        isEquipable: it.isEquipable,
+        slotCode: it.slotCode ? slotByCode[it.slotCode]?.code ?? null : null,
+        rarity: it.rarity,
+        valueGold: it.valueGold,
+        description: it.description,
+      },
+    }).catch(async () => {
+      const existing = await db.itemTemplate.findFirst({ where: { name: it.name } });
+      if (existing) return existing;
+      return db.itemTemplate.create({
+        data: {
+          name: it.name,
+          slug: it.name.toLowerCase().replace(/\s+/g, '-'),
+          isConsumable: it.isConsumable,
+          isEquipable: it.isEquipable,
+          slotCode: it.slotCode ? slotByCode[it.slotCode]?.code ?? null : null,
+          rarity: it.rarity,
+          valueGold: it.valueGold,
+          description: it.description,
+        },
+      });
+    });
+
+    if (it.stats) {
+      const pairs = Object.entries(it.stats)
+        .map(([k, v]) => {
+          const attrId = statToAttributeId(k);
+          return attrId ? { attributeId: attrId, value: Number(v) } : null;
+        })
+        .filter(Boolean);
+      for (const p of pairs) {
+        await db.itemTemplateAttribute.upsert({
+          where: { itemTemplateId_attributeId: { itemTemplateId: created.id, attributeId: p.attributeId } },
+          update: { value: p.value },
+          create: { itemTemplateId: created.id, attributeId: p.attributeId, value: p.value },
+        });
+      }
+    }
+  }
+
+  console.log('Seed complete ✔');
+}
+
+main()
+  .then(() => db.$disconnect())
+  .catch((e) => {
+    console.error(e);
+    return db.$disconnect().finally(() => process.exit(1));
+  });
+

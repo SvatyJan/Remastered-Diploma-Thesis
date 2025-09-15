@@ -15,3 +15,10 @@ npm run dev
 # Database (optional, if/when needed)
 docker compose up -d
 # Configure .env with DATABASE_URL if using Prisma later
+
+# Adminer (Local)
+localhost:8080
+server: db
+user: root
+password: root
+db: rpg
