@@ -1,25 +1,43 @@
 {
-    "name":  "dtrpg",
-    "private":  true,
-    "version":  "0.0.0",
-    "type":  "module",
-    "dependencies":  {
-                         "@prisma/client":  "^6.16.1",
-                         "react":  "^18.3.1",
-                         "react-dom":  "^18.3.1"
-                     },
-    "devDependencies":  {
-                            "@vitejs/plugin-react-swc":  "^3.11.0",
-                            "eslint":  "^9.32.0",
-                            "prisma":  "^6.16.1",
-                            "typescript":  "^5.8.3",
-                            "vite":  "^5.4.19"
-                        },
-    "scripts":  {
-                    "preview":  "vite preview",
-                    "build":  "vite build",
-                    "dev":  "vite",
-                    "seed":  "node prisma/seed.cjs",
-                    "lint":  "eslint ."
-                }
+    "name": "dtrpg",
+    "private": true,
+    "version": "0.0.0",
+    "type": "module",
+    "dependencies": {
+        "@prisma/client": "^6.16.1",
+        "bcryptjs": "^2.4.3",
+        "cors": "^2.8.5",
+        "dotenv": "^16.4.7",
+        "express": "^4.19.2",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1",
+        "react-router-dom": "^6.30.1"
+    },
+    "scripts": {
+        "server:start": "node server/dist/index.js",
+        "seed": "node prisma/seed.cjs",
+        "build": "vite build",
+        "preview": "vite preview",
+        "lint": "eslint .",
+        "client:preview": "vite preview",
+        "client:build": "vite build",
+        "server:dev": "tsx watch server/src/index.ts",
+        "client:dev": "vite",
+        "server:build": "tsc -p server/tsconfig.json",
+        "dev": "vite"
+    },
+    "devDependencies": {
+        "@types/bcryptjs": "^2.4.6",
+        "@types/cors": "^2.8.17",
+        "@types/express": "^4.17.21",
+        "@types/node": "^22.9.0",
+        "@types/react": "^19.1.13",
+        "@types/react-dom": "^19.1.9",
+        "@vitejs/plugin-react-swc": "^3.11.0",
+        "eslint": "^9.32.0",
+        "prisma": "^6.16.1",
+        "tsx": "^4.19.2",
+        "typescript": "^5.8.3",
+        "vite": "^7.1.5"
+    }
 }

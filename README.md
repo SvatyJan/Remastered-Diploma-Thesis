@@ -4,12 +4,16 @@ npm install
 # Backend
 cd server
 npm install
-npm run dev
+npm run server:dev
 # API at http://localhost:4000/api/health
 
 # Frontend
 cd ..
 npm run dev
+
+npm audit fix --force
+npm rm fix
+
 # App at http://localhost:8000
 
 # Database (optional, if/when needed)
