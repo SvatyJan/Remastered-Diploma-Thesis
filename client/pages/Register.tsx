@@ -74,4 +74,3 @@ const container: React.CSSProperties = { display: 'grid', placeItems: 'center', 
 const form: React.CSSProperties = { display: 'grid', gap: 8, minWidth: 320 }
 const errorBox: React.CSSProperties = { color: 'crimson', background: '#fee', padding: 8, borderRadius: 6 }
 const okBox: React.CSSProperties = { color: 'green', background: '#efe', padding: 8, borderRadius: 6 }
-

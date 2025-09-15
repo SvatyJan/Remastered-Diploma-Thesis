@@ -1,11 +1,28 @@
-import express, { Request, Response } from 'express'
+import express, { Request, Response, NextFunction } from 'express'
 import cors from 'cors'
 import { prisma } from './prisma'
 import bcrypt from 'bcryptjs'
+import jwt from 'jsonwebtoken'
 
 const app = express()
 app.use(cors())
 app.use(express.json())
+
+// --- Auth helpers ---
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me'
+type AuthedRequest = Request & { userId?: number }
+function authRequired(req: AuthedRequest, res: Response, next: NextFunction) {
+  const auth = req.headers.authorization || ''
+  const token = auth.startsWith('Bearer ')? auth.slice(7): ''
+  if (!token) return res.status(401).json({ error: 'Missing token' })
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as { uid: number }
+    req.userId = decoded.uid
+    return next()
+  } catch (e) {
+    return res.status(401).json({ error: 'Invalid token' })
+  }
+}
 
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok' })
@@ -30,7 +47,8 @@ app.post('/api/register', async (req: Request, res: Response) => {
       data: { email, username, password: hash },
       select: { id: true, email: true, username: true },
     })
-    return res.status(201).json({ user })
+    const token = jwt.sign({ uid: Number(user.id) }, JWT_SECRET, { expiresIn: '7d' })
+    return res.status(201).json({ user, token })
   } catch (err) {
     console.error(err)
     return res.status(500).json({ error: 'Server error' })
@@ -52,16 +70,44 @@ app.post('/api/login', async (req: Request, res: Response) => {
     const ok = await bcrypt.compare(password, user.password)
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' })
 
-    return res.json({ user: { id: user.id, email: user.email, username: user.username } })
+    const token = jwt.sign({ uid: Number(user.id) }, JWT_SECRET, { expiresIn: '7d' })
+    return res.json({ user: { id: user.id, email: user.email, username: user.username }, token })
   } catch (err) {
     console.error(err)
     return res.status(500).json({ error: 'Server error' })
   }
 })
 
-app.get('/api/characters', async (_req: Request, res: Response) => {
-  // Placeholder endpoint until characters flow is implemented
-  return res.json({ items: [] })
+// List characters for authed user
+app.get('/api/characters', authRequired, async (req: AuthedRequest, res: Response) => {
+  const userId = req.userId!
+  const items = await prisma.character.findMany({
+    where: { userId: BigInt(userId) },
+    select: { id: true, name: true, level: true, ancestryId: true },
+    orderBy: { dateCreated: 'desc' },
+  })
+  return res.json({ items })
+})
+
+// Create simple character (temporary minimal payload)
+app.post('/api/characters', authRequired, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = req.userId!
+    const { name, ancestryId } = req.body ?? {}
+    if (!name) return res.status(400).json({ error: 'Missing name' })
+    const created = await prisma.character.create({
+      data: {
+        userId: BigInt(userId),
+        ancestryId: BigInt(ancestryId ?? 1),
+        name,
+      },
+      select: { id: true, name: true, level: true, ancestryId: true },
+    })
+    return res.status(201).json({ item: created })
+  } catch (e) {
+    console.error(e)
+    return res.status(500).json({ error: 'Server error' })
+  }
 })
 
 const PORT = Number(process.env.PORT || 4000)

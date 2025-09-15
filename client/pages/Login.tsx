@@ -20,6 +20,7 @@ export default function LoginPage() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data?.error || 'Login failed')
+      if (data?.token) localStorage.setItem('token', data.token)
       navigate('/characters')
     } catch (err: any) {
       setError(err.message)
@@ -55,4 +56,3 @@ export default function LoginPage() {
 const container: React.CSSProperties = { display: 'grid', placeItems: 'center', height: '100vh', gap: 12, fontFamily: 'system-ui, sans-serif' }
 const form: React.CSSProperties = { display: 'grid', gap: 8, minWidth: 320 }
 const errorBox: React.CSSProperties = { color: 'crimson', background: '#fee', padding: 8, borderRadius: 6 }
-
