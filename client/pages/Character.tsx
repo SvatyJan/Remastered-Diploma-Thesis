@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useParams } from 'react-router-dom'
 import GameLayout from '../components/GameLayout'
 import { useRequireGameSession } from '../hooks/useRequireGameSession'
 
@@ -30,7 +31,7 @@ type Item = {
   icon: string
 }
 
-type CharacterSummary = { id: number; name: string; level: number; ancestry: { id: number; name: string; description: string | null } | null }
+type CharacterSummary = { id: number; name: string; level: number; ancestry: { id: number; name: string; description: string | null } | null; isSelf: boolean }
 
 type DragPayload = { inventoryId: number }
 
@@ -65,6 +66,19 @@ export default function CharacterPage() {
   const [error, setError] = useState<string | null>(null)
   const [draggingId, setDraggingId] = useState<number | null>(null)
   const [tooltip, setTooltip] = useState<{ id: number; x: number; y: number } | null>(null)
+  const [friendStatus, setFriendStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
+  const [friendError, setFriendError] = useState<string | null>(null)
+
+  const params = useParams<{ id?: string }>()
+  const rawParamId = params.id
+  const parsedParamId = rawParamId ? Number(rawParamId) : null
+  const invalidCharacterParam = Boolean(
+    rawParamId &&
+      (Number.isNaN(parsedParamId ?? Number.NaN) ||
+        !Number.isFinite(parsedParamId ?? Number.NaN) ||
+        !Number.isInteger(parsedParamId ?? Number.NaN) ||
+        (parsedParamId ?? 0) <= 0),
+  )
 
   const activeCharacter = useMemo(() => {
     const stored = localStorage.getItem('activeCharacter')
@@ -77,7 +91,11 @@ export default function CharacterPage() {
     }
   }, [])
 
-  const characterId = activeCharacter?.id ?? null
+  const characterId = useMemo(() => {
+    if (invalidCharacterParam) return null
+    if (parsedParamId) return parsedParamId
+    return activeCharacter?.id ?? null
+  }, [invalidCharacterParam, parsedParamId, activeCharacter])
 
   const fetchData = useCallback(async () => {
     if (!characterId) return
@@ -102,6 +120,8 @@ export default function CharacterPage() {
       setCharacter(data.character)
       setBaseAttributes(mapAttributeList(data.attributes))
       setItems(buildItems(data.inventory))
+      setFriendStatus('idle')
+      setFriendError(null)
     } catch (err: any) {
       setError(err?.message ?? 'Failed to load character')
     } finally {
@@ -113,6 +133,11 @@ export default function CharacterPage() {
     fetchData()
   }, [fetchData])
 
+  useEffect(() => {
+    setFriendStatus('idle')
+    setFriendError(null)
+  }, [characterId])
+
   const equippedAttributes = useMemo(() => computeAttributes(baseAttributes, items), [baseAttributes, items])
 
   const equippedBySlot = useMemo(() => {
@@ -123,7 +148,8 @@ export default function CharacterPage() {
     return map
   }, [items])
 
-  const itemsInInventory = items.filter((item) => !item.slot && item.position)
+  const allowInteraction = Boolean(character && activeCharacter && character.id === activeCharacter.id)
+  const itemsInInventory = useMemo(() => (allowInteraction ? items.filter((item) => !item.slot && item.position) : []), [items, allowInteraction])
 
   const tooltipItem = tooltip ? items.find((item) => item.inventoryId === tooltip.id) : undefined
 
@@ -139,7 +165,7 @@ export default function CharacterPage() {
 
   const handleSlotDrop = (slotCode: string) => async (event: React.DragEvent) => {
     event.preventDefault()
-    if (!characterId) return
+    if (!allowInteraction || !characterId) return
     const payload = parsePayload(event.dataTransfer)
     if (!payload) return
     const item = items.find((candidate) => candidate.inventoryId === payload.inventoryId)
@@ -170,6 +196,7 @@ export default function CharacterPage() {
 
   const handleInventoryDrop = async (event: React.DragEvent<HTMLDivElement>) => {
     event.preventDefault()
+    if (!allowInteraction) return
     const payload = parsePayload(event.dataTransfer)
     if (!payload) return
     const item = items.find((candidate) => candidate.inventoryId === payload.inventoryId)
@@ -201,19 +228,61 @@ export default function CharacterPage() {
     event.dataTransfer.dropEffect = 'move'
   }
 
+
   const onHover = (item: Item) => (event: React.MouseEvent<HTMLDivElement>) => {
     setTooltip({ id: item.inventoryId, x: event.clientX + 16, y: event.clientY + 16 })
   }
 
   const onLeave = () => setTooltip(null)
 
-  if (!characterId) {
-    return (
-      <GameLayout>
-        <div style={centerMessage}>Open the Characters page to select a hero.</div>
-      </GameLayout>
-    )
+  const handleAddFriend = async () => {
+    if (!character || character.isSelf) return
+    if (!activeCharacter) {
+      setFriendError('Select your character first to add friends.')
+      return
+    }
+    try {
+      setFriendError(null)
+      setFriendStatus('loading')
+      const token = localStorage.getItem('token')
+      if (!token) throw new Error('Missing session token')
+      await fetch('/api/relationships', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ sourceCharacterId: activeCharacter.id, targetCharacterId: character.id }),
+      }).then(assertOk)
+      setFriendStatus('success')
+    } catch (err: any) {
+      setFriendStatus('error')
+      setFriendError(err?.message ?? 'Failed to add friend')
+    }
   }
+
+
+if (invalidCharacterParam) {
+  return (
+    <GameLayout>
+      <div style={centerMessage}>Invalid character reference.</div>
+    </GameLayout>
+  )
+}
+
+if (!characterId) {
+  return (
+    <GameLayout>
+      <div style={centerMessage}>Open the Characters page to select a hero.</div>
+    </GameLayout>
+  )
+}
+
+  const friendButtonDisabled = !character || !activeCharacter || friendStatus === 'loading' || friendStatus === 'success'
+  const friendButtonLabel = !activeCharacter
+    ? 'Select a character'
+    : friendStatus === 'success'
+    ? 'Friend added'
+    : friendStatus === 'loading'
+    ? 'Adding...'
+    : 'Add friend'
 
   return (
     <GameLayout>
@@ -222,44 +291,72 @@ export default function CharacterPage() {
           <header style={header}>
             <div>
               <h1 style={title}>{character?.name ?? activeCharacter?.name ?? 'Character'}</h1>
-              <p style={subtitle}>{loading ? 'Loading...' : 'Drag items between equipment and inventory.'}</p>
+              <p style={subtitle}>
+                {loading
+                  ? 'Loading...'
+                  : allowInteraction
+                  ? 'Drag items between equipment and inventory.'
+                  : 'Review equipped items and attributes.'}
+              </p>
             </div>
+            {!allowInteraction && character && (
+              <div style={friendActions}>
+                <button
+                  type="button"
+                  style={friendButton}
+                  onClick={handleAddFriend}
+                  disabled={friendButtonDisabled}
+                >
+                  {friendButtonLabel}
+                </button>
+                {friendStatus === 'success' && <span style={friendSuccess}>{'Friend added'}</span>}
+                {friendError && <span style={friendErrorText}>{friendError}</span>}
+              </div>
+            )}
           </header>
           <section style={equipmentSection}>
-            <div style={equipmentBoard}>
-              <div style={silhouette} />
-              {EQUIPMENT_SLOTS.map((slot) => {
-                const equipped = equippedBySlot[slot.code]
-                return (
-                  <div
-                    key={slot.code}
-                    onDrop={handleSlotDrop(slot.code)}
-                    onDragOver={handleSlotDragOver}
-                    style={{
-                      ...slotBase,
-                      top: slot.top,
-                      left: slot.left,
-                      borderColor: equipped ? '#3fc380' : draggingId ? '#3f7ac3' : '#555',
-                    }}
-                  >
-                    {equipped ? (
-                      <div
-                        draggable
-                        onDragStart={handleDragStart(equipped)}
-                        onDragEnd={handleDragEnd}
-                        onMouseMove={onHover(equipped)}
-                        onMouseLeave={onLeave}
-                        style={equippedItem}
-                      >
-                        <span style={itemIcon}>{equipped.icon}</span>
-                      </div>
-                    ) : (
-                      <span style={slotLabel}>{slot.label}</span>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
+            {allowInteraction ? (
+              <div style={equipmentBoard}>
+                <div style={silhouette} />
+                {EQUIPMENT_SLOTS.map((slot) => {
+                  const equipped = equippedBySlot[slot.code]
+                  return (
+                    <div
+                      key={slot.code}
+                      onDrop={handleSlotDrop(slot.code)}
+                      onDragOver={handleSlotDragOver}
+                      style={{
+                        ...slotBase,
+                        top: slot.top,
+                        left: slot.left,
+                        borderColor: equipped ? '#3fc380' : draggingId ? '#3f7ac3' : '#555',
+                      }}
+                    >
+                      {equipped ? (
+                        <div
+                          draggable={allowInteraction}
+                          onDragStart={allowInteraction ? handleDragStart(equipped) : undefined}
+                          onDragEnd={allowInteraction ? handleDragEnd : undefined}
+                          onMouseMove={onHover(equipped)}
+                          onMouseLeave={onLeave}
+                          style={{
+                            ...equippedItem,
+                            cursor: allowInteraction ? 'grab' : 'default',
+                            opacity: allowInteraction ? 1 : 0.95,
+                          }}
+                        >
+                          <span style={itemIcon}>{equipped.icon}</span>
+                        </div>
+                      ) : (
+                        <span style={slotLabel}>{slot.label}</span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div style={equipmentPlaceholder}>Equipment is private.</div>
+            )}
           </section>
           <section style={attributesSection}>
             <h2 style={sectionTitle}>Attributes</h2>
@@ -278,34 +375,42 @@ export default function CharacterPage() {
           </section>
           {error && <div style={errorBox}>{error}</div>}
         </div>
-        <aside style={inventorySection}>
-          <h2 style={sectionTitle}>Inventory</h2>
-          <div
-            style={inventoryBoard}
-            onDrop={handleInventoryDrop}
-            onDragOver={handleInventoryDragOver}
-          >
-            {itemsInInventory.map((item) => (
-              <div
-                key={item.inventoryId}
-                draggable
-                onDragStart={handleDragStart(item)}
-                onDragEnd={handleDragEnd}
-                onMouseMove={onHover(item)}
-                onMouseLeave={onLeave}
-                style={{
-                  ...inventoryItem,
-                  left: (item.position!.x || 0) * CELL_SIZE,
-                  top: (item.position!.y || 0) * CELL_SIZE,
-                  borderColor: draggingId === item.inventoryId ? '#3f7ac3' : '#444',
-                }}
-              >
-                <span style={itemIcon}>{item.icon}</span>
-                {item.amount > 1 && <span style={stackBadge}>{item.amount}</span>}
-              </div>
-            ))}
-          </div>
-        </aside>
+        {allowInteraction ? (
+          <aside style={inventorySection}>
+            <h2 style={sectionTitle}>Inventory</h2>
+            <div
+              style={inventoryBoard}
+              onDrop={handleInventoryDrop}
+              onDragOver={handleInventoryDragOver}
+            >
+              {itemsInInventory.map((item) => (
+                <div
+                  key={item.inventoryId}
+                  draggable={allowInteraction}
+                  onDragStart={allowInteraction ? handleDragStart(item) : undefined}
+                  onDragEnd={allowInteraction ? handleDragEnd : undefined}
+                  onMouseMove={onHover(item)}
+                  onMouseLeave={onLeave}
+                  style={{
+                    ...inventoryItem,
+                    left: (item.position!.x || 0) * CELL_SIZE,
+                    top: (item.position!.y || 0) * CELL_SIZE,
+                    borderColor: draggingId === item.inventoryId ? '#3f7ac3' : '#444',
+                    cursor: allowInteraction ? 'grab' : 'default',
+                  }}
+                >
+                  <span style={itemIcon}>{item.icon}</span>
+                  {item.amount > 1 && <span style={stackBadge}>{item.amount}</span>}
+                </div>
+              ))}
+            </div>
+          </aside>
+        ) : (
+          <aside style={inventorySection}>
+            <h2 style={sectionTitle}>Inventory</h2>
+            <div style={inventoryPlaceholder}>Inventory is private.</div>
+          </aside>
+        )}
       </div>
       {tooltipItem && tooltip && (
         <div style={{ ...tooltipBox, transform: `translate(${tooltip.x}px, ${tooltip.y}px)` }}>
@@ -499,6 +604,7 @@ const equipmentSection: React.CSSProperties = {
 }
 
 const equipmentBoard: React.CSSProperties = { position: 'relative', width: 360, height: 440, margin: '0 auto' }
+const equipmentPlaceholder: React.CSSProperties = { textAlign: 'center', color: '#9ca3af', padding: '32px 0' }
 const silhouette: React.CSSProperties = {
   position: 'absolute',
   left: '50%',
@@ -595,6 +701,12 @@ const stackBadge: React.CSSProperties = {
   fontSize: 12,
 }
 
+const inventoryPlaceholder: React.CSSProperties = {
+  padding: '20px 0',
+  textAlign: 'center',
+  color: '#9ca3af',
+}
+
 const tooltipBox: React.CSSProperties = {
   position: 'fixed',
   zIndex: 1000,
@@ -616,3 +728,16 @@ const errorBox: React.CSSProperties = {
   padding: '12px 16px',
   color: '#fecaca',
 }
+
+const friendActions: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 12 }
+const friendButton: React.CSSProperties = {
+  padding: '8px 14px',
+  borderRadius: 10,
+  border: '1px solid rgba(59,130,246,0.6)',
+  background: 'rgba(37,99,235,0.2)',
+  color: '#bfdbfe',
+  cursor: 'pointer',
+  fontSize: 14,
+}
+const friendSuccess: React.CSSProperties = { color: '#86efac', fontSize: 12 }
+const friendErrorText: React.CSSProperties = { color: '#fca5a5', fontSize: 12 }

@@ -19,6 +19,7 @@ export default function App() {
         <Route path="/characters/new" element={<CreateCharacterPage />} />
         <Route path="/world" element={<WorldPage />} />
         <Route path="/character" element={<CharacterPage />} />
+        <Route path="/character/:id" element={<CharacterPage />} />
         <Route path="/social" element={<SocialPage />} />
         <Route path="/shop" element={<ShopPage />} />
         <Route path="/" element={<Navigate to="/login" replace />} />

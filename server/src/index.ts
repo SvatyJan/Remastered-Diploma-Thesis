@@ -43,6 +43,14 @@ type InventoryRecord = {
   equipped: { slotCode: string } | null
 }
 
+type PlayerRecord = {
+  id: bigint | number
+  name: string
+  level: number
+  ancestry: { name: string } | null
+  guildMember: { guild: { name: string } } | null
+}
+
 function toUserDto(user: UserRecord) {
   return {
     id: Number(user.id),
@@ -80,6 +88,16 @@ function toInventoryDto(item: InventoryRecord) {
       name: attr.attribute.name,
       value: attr.value,
     })),
+  }
+}
+
+function toPlayerDto(record: PlayerRecord) {
+  return {
+    id: Number(record.id),
+    name: record.name,
+    level: record.level,
+    ancestry: record.ancestry?.name ?? null,
+    guild: record.guildMember?.guild.name ?? null,
   }
 }
 
@@ -170,18 +188,45 @@ app.get('/api/characters', authRequired, async (req: AuthedRequest, res: Respons
   return res.json({ items: items.map(toCharacterDto) })
 })
 
+app.get('/api/social/players', authRequired, async (req: AuthedRequest, res: Response) => {
+  try {
+    const search = String(req.query.search ?? '').trim()
+    const players = await prisma.character.findMany({
+      where: {
+        isNpc: false,
+        name: search ? { contains: search, mode: 'insensitive' } : undefined,
+      },
+      select: {
+        id: true,
+        name: true,
+        level: true,
+        ancestry: { select: { name: true } },
+        guildMember: { select: { guild: { select: { name: true } } } },
+      },
+      orderBy: { name: 'asc' },
+      take: 100,
+    })
+    return res.json({ items: players.map(toPlayerDto) })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
 app.get('/api/characters/:id', authRequired, async (req: AuthedRequest, res: Response) => {
   try {
     const userId = req.userId!
     const characterId = Number(req.params.id)
     if (!Number.isFinite(characterId)) return res.status(400).json({ error: 'Invalid character id' })
 
-    const character = await prisma.character.findFirst({
-      where: { id: BigInt(characterId), userId: BigInt(userId) },
+    const character = await prisma.character.findUnique({
+      where: { id: BigInt(characterId) },
       select: {
         id: true,
         name: true,
         level: true,
+        userId: true,
+        isNpc: true,
         ancestry: { select: { id: true, name: true, description: true } },
         attributes: {
           select: {
@@ -216,7 +261,12 @@ app.get('/api/characters/:id', authRequired, async (req: AuthedRequest, res: Res
       },
     })
 
-    if (!character) return res.status(404).json({ error: 'Character not found' })
+    if (!character || character.isNpc) return res.status(404).json({ error: 'Character not found' })
+
+    const isSelf = character.userId !== null && character.userId === BigInt(userId)
+    const inventorySource = isSelf
+      ? character.inventories
+      : character.inventories.filter((item) => item.equipped !== null)
 
     return res.json({
       character: {
@@ -224,9 +274,10 @@ app.get('/api/characters/:id', authRequired, async (req: AuthedRequest, res: Res
         name: character.name,
         level: character.level,
         ancestry: character.ancestry ? toAncestryDto(character.ancestry) : null,
+        isSelf,
       },
       attributes: character.attributes.map(toAttributeDto),
-      inventory: character.inventories.map(toInventoryDto),
+      inventory: inventorySource.map(toInventoryDto),
     })
   } catch (err) {
     console.error(err)
@@ -363,6 +414,7 @@ app.post('/api/characters/:id/equipment', authRequired, async (req: AuthedReques
   }
 })
 
+
 app.delete('/api/characters/:id/equipment/:slotCode', authRequired, async (req: AuthedRequest, res: Response) => {
   try {
     const userId = req.userId!
@@ -382,6 +434,45 @@ app.delete('/api/characters/:id/equipment/:slotCode', authRequired, async (req: 
     })
 
     return res.status(204).send()
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.post('/api/relationships', authRequired, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = req.userId!
+    const { sourceCharacterId, targetCharacterId } = req.body ?? {}
+    if (!Number.isInteger(sourceCharacterId) || sourceCharacterId <= 0)
+      return res.status(400).json({ error: 'Invalid source character id' })
+    if (!Number.isInteger(targetCharacterId) || targetCharacterId <= 0)
+      return res.status(400).json({ error: 'Invalid target character id' })
+    if (sourceCharacterId === targetCharacterId)
+      return res.status(400).json({ error: 'Cannot add yourself as a friend' })
+
+    const source = await prisma.character.findFirst({
+      where: { id: BigInt(sourceCharacterId), userId: BigInt(userId), isNpc: false },
+      select: { id: true },
+    })
+    if (!source) return res.status(404).json({ error: 'Source character not found' })
+
+    const target = await prisma.character.findFirst({
+      where: { id: BigInt(targetCharacterId), isNpc: false },
+      select: { id: true },
+    })
+    if (!target) return res.status(404).json({ error: 'Target character not found' })
+
+    const aId = source.id < target.id ? source.id : target.id
+    const bId = source.id < target.id ? target.id : source.id
+
+    await prisma.relationship.upsert({
+      where: { aId_bId: { aId, bId } },
+      update: { status: 'friend' },
+      create: { aId, bId, status: 'friend' },
+    })
+
+    return res.status(201).json({ status: 'ok' })
   } catch (err) {
     console.error(err)
     return res.status(500).json({ error: 'Server error' })
