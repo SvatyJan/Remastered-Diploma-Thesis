@@ -346,13 +346,14 @@ model CharacterSpellbook {
 model CharacterSpellbookLoadout {
   characterId BigInt @map("character_id")
   slotCode    String @map("slot_code") @db.VarChar(32)
+  slotIndex   Int    @map("slot_index") @default(0)
   spellId     BigInt @map("spell_id")
 
   character Character     @relation(fields: [characterId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   slot      SpellSlotType @relation(fields: [slotCode], references: [code], onDelete: Restrict, onUpdate: Cascade)
   spell     Spell         @relation(fields: [spellId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
-  @@id([characterId, slotCode])
+  @@id([characterId, slotCode, slotIndex])
   @@map("character_spellbook_loadout")
 }
 

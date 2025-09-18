@@ -112,6 +112,11 @@ export default function ShopPage() {
 
   const netGoldChange = sellTotal - buyTotal
 
+  const formattedSellTotal = sellTotal > 0 ? `+${sellTotal}` : '0'
+  const formattedBuyTotal = buyTotal > 0 ? `-${buyTotal}` : '0'
+  const sellTotalColor = sellTotal > 0 ? '#86efac' : '#9ca3af'
+  const buyTotalColor = buyTotal > 0 ? '#fca5a5' : '#9ca3af'
+
   const parseDragData = useCallback((event: React.DragEvent): DragData | null => {
     const raw = event.dataTransfer.getData('application/json')
     if (!raw) return null
@@ -374,6 +379,7 @@ export default function ShopPage() {
                         }
                         onMouseMove={updateTooltipPosition}
                         onMouseLeave={hideTooltip}
+                        onDoubleClick={() => addPlayerItemToTrade(item.inventoryId)}
                       >
                         <span style={itemName}>{item.name}</span>
                         <span style={itemValue}>{item.valueGold}g</span>
@@ -382,7 +388,7 @@ export default function ShopPage() {
                     ))
                   )}
                 </div>
-                <p style={hint}>Drag here to cancel selling an item.</p>
+                <p style={hint}>Drag or double-click an item to move it to the trade. Drag back here to cancel selling.</p>
               </section>
 
               <section
@@ -411,6 +417,16 @@ export default function ShopPage() {
                           ? playerMap.get(entry.inventoryId)
                           : vendorMap.get(entry.templateId)
                       if (!reference) return null
+
+                      const totalValue = reference.valueGold * entry.amount
+                      const signedValue = entry.kind === 'sell' ? `+${totalValue}` : `-${totalValue}`
+                      const valueColor = entry.kind === 'sell' ? '#86efac' : '#fca5a5'
+                      const tradeLabel = entry.kind === 'sell' ? 'Sell' : 'Buy'
+                      const tagStyle =
+                        entry.kind === 'sell'
+                          ? { background: 'rgba(34,197,94,0.15)', color: '#bbf7d0', border: '1px solid rgba(34,197,94,0.4)' }
+                          : { background: 'rgba(239,68,68,0.18)', color: '#fecaca', border: '1px solid rgba(239,68,68,0.35)' }
+
                       return (
                         <div
                           key={entry.id}
@@ -440,10 +456,11 @@ export default function ShopPage() {
                           }
                           onMouseMove={updateTooltipPosition}
                           onMouseLeave={hideTooltip}
+                          onDoubleClick={() => removeTradeEntry(entry.id)}
                         >
                           <div>
                             <strong>{reference.name}</strong>
-                            <span style={tradeTag}>{entry.kind === 'sell' ? 'Sell' : 'Buy'}</span>
+                            <span style={{ ...tradeTag, ...tagStyle }}>{tradeLabel}</span>
                           </div>
                           <div style={tradeControls}>
                             <button
@@ -471,7 +488,7 @@ export default function ShopPage() {
                             </button>
                           </div>
                           <div style={tradeFooter}>
-                            <span>{reference.valueGold * entry.amount}g</span>
+                            <span style={{ color: valueColor }}>{signedValue}g</span>
                             <button
                               type="button"
                               style={removeButton}
@@ -490,8 +507,8 @@ export default function ShopPage() {
                   </div>
                 )}
                 <div style={summaryBox}>
-                  <div>Sell total: <strong>{sellTotal}</strong>g</div>
-                  <div>Buy total: <strong>{buyTotal}</strong>g</div>
+                  <div>Sell total: <strong style={{ color: sellTotalColor }}>{formattedSellTotal}g</strong></div>
+                  <div>Buy total: <strong style={{ color: buyTotalColor }}>{formattedBuyTotal}g</strong></div>
                   <div>
                     Result:{' '}
                     <strong style={{ color: netGoldChange >= 0 ? '#86efac' : '#fca5a5' }}>
@@ -548,6 +565,7 @@ export default function ShopPage() {
                         }
                         onMouseMove={updateTooltipPosition}
                         onMouseLeave={hideTooltip}
+                        onDoubleClick={() => addVendorItemToTrade(item.templateId)}
                       >
                         <span style={itemName}>{item.name}</span>
                         <span style={itemValue}>{item.valueGold}g</span>
@@ -555,7 +573,7 @@ export default function ShopPage() {
                     ))
                   )}
                 </div>
-                <p style={hint}>Drag here to cancel buying an item.</p>
+                <p style={hint}>Drag or double-click an item to move it to the trade. Drag back here to cancel buying.</p>
               </section>
             </div>
           </>
@@ -621,7 +639,7 @@ const tradeItem: React.CSSProperties = { display: 'grid', gridTemplateColumns: '
 const tradeControls: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8 }
 const controlButton: React.CSSProperties = { width: 28, height: 28, borderRadius: 8, border: '1px solid rgba(148,163,184,0.4)', background: 'rgba(30,41,59,0.8)', color: '#e2e8f0', cursor: 'pointer' }
 const tradeFooter: React.CSSProperties = { gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 14, color: '#bfdbfe' }
-const tradeTag: React.CSSProperties = { marginLeft: 8, padding: '2px 6px', borderRadius: 6, background: 'rgba(59,130,246,0.2)', color: '#bfdbfe', fontSize: 12 }
+const tradeTag: React.CSSProperties = { marginLeft: 8, padding: '2px 6px', borderRadius: 6, fontSize: 12, fontWeight: 600 }
 const removeButton: React.CSSProperties = { border: 'none', background: 'transparent', color: '#fca5a5', cursor: 'pointer', fontSize: 13 }
 const summaryBox: React.CSSProperties = { marginTop: 'auto', display: 'flex', flexDirection: 'column', gap: 8, padding: '12px 14px', borderRadius: 12, background: 'rgba(17,24,39,0.9)', border: '1px solid rgba(148,163,184,0.2)' }
 const tradeButton: React.CSSProperties = { marginTop: 8, padding: '10px 14px', borderRadius: 10, border: 'none', background: 'linear-gradient(135deg, #2563eb, #38bdf8)', color: '#f8fafc', cursor: 'pointer', fontWeight: 600 }

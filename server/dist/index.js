@@ -89,7 +89,22 @@ function toVendorItem(template) {
         })),
     };
 }
+function toSpellDto(spell) {
+    return {
+        id: Number(spell.id),
+        name: spell.name,
+        slug: spell.slug,
+        description: spell.description,
+        cooldown: spell.cooldown,
+    };
+}
 class ShopError extends Error {
+    constructor(status, message) {
+        super(message);
+        this.status = status;
+    }
+}
+class SpellLoadoutError extends Error {
     constructor(status, message) {
         super(message);
         this.status = status;
@@ -455,6 +470,70 @@ app.post('/api/shop/:id/trade', authRequired, async (req, res) => {
         return res.status(500).json({ error: 'Server error' });
     }
 });
+async function loadSpellState(characterId) {
+    const [slotTypes, spellbook, loadouts] = await Promise.all([
+        prisma.spellSlotType.findMany({
+            select: { code: true, name: true, maxPerCharacter: true },
+            orderBy: { code: 'asc' },
+        }),
+        prisma.characterSpellbook.findMany({
+            where: { characterId },
+            select: {
+                spellLevel: true,
+                spell: {
+                    select: {
+                        id: true,
+                        name: true,
+                        slug: true,
+                        description: true,
+                        cooldown: true,
+                    },
+                },
+            },
+            orderBy: { learnedAt: 'asc' },
+        }),
+        prisma.characterSpellbookLoadout.findMany({
+            where: { characterId },
+            select: {
+                slotCode: true,
+                slotIndex: true,
+                spell: {
+                    select: {
+                        id: true,
+                        name: true,
+                        slug: true,
+                        description: true,
+                        cooldown: true,
+                    },
+                },
+            },
+        }),
+    ]);
+    const loadoutMap = new Map();
+    for (const entry of loadouts) {
+        if (entry.spell)
+            loadoutMap.set(`${entry.slotCode}:${entry.slotIndex}`, toSpellDto(entry.spell));
+    }
+    const slots = slotTypes.flatMap((slot) => {
+        const count = Math.max(1, slot.maxPerCharacter);
+        return Array.from({ length: count }, (_, index) => {
+            const key = `${slot.code}:${index}`;
+            const spell = loadoutMap.get(key) ?? null;
+            const slotName = slot.code === 'spell' ? String(index + 1) : slot.name;
+            return {
+                slotCode: slot.code,
+                slotIndex: index,
+                slotName,
+                spell,
+            };
+        });
+    });
+    const learned = spellbook.map((entry) => ({
+        ...toSpellDto(entry.spell),
+        level: entry.spellLevel,
+    }));
+    return { slots, learned };
+}
 app.get('/api/social/players', authRequired, async (req, res) => {
     try {
         const search = String(req.query.search ?? '').trim();
@@ -694,6 +773,97 @@ app.delete('/api/characters/:id/equipment/:slotCode', authRequired, async (req, 
             where: { characterId: character.id, slotCode },
         });
         return res.status(204).send();
+    }
+    catch (err) {
+        console.error(err);
+        return res.status(500).json({ error: 'Server error' });
+    }
+});
+app.post('/api/characters/:id/spells', authRequired, async (req, res) => {
+    try {
+        const userId = req.userId;
+        const characterId = Number(req.params.id);
+        const slotCodeRaw = typeof req.body?.slotCode === 'string' ? req.body.slotCode.trim() : '';
+        const slotIndexRaw = Number(req.body?.slotIndex);
+        const spellIdRaw = Number(req.body?.spellId);
+        if (!Number.isInteger(characterId) || characterId <= 0)
+            return res.status(400).json({ error: 'Invalid character id' });
+        if (!slotCodeRaw)
+            return res.status(400).json({ error: 'Invalid spell slot' });
+        if (!Number.isInteger(slotIndexRaw) || slotIndexRaw < 0)
+            return res.status(400).json({ error: 'Invalid spell slot index' });
+        if (!Number.isInteger(spellIdRaw) || spellIdRaw <= 0)
+            return res.status(400).json({ error: 'Invalid spell id' });
+        const slotCode = slotCodeRaw;
+        const slotIndex = slotIndexRaw;
+        const spellId = spellIdRaw;
+        const character = await prisma.character.findFirst({
+            where: { id: BigInt(characterId), userId: BigInt(userId), isNpc: false },
+            select: { id: true },
+        });
+        if (!character)
+            return res.status(404).json({ error: 'Character not found' });
+        try {
+            await prisma.$transaction(async (tx) => {
+                const slotType = await tx.spellSlotType.findUnique({ where: { code: slotCode }, select: { maxPerCharacter: true } });
+                if (!slotType)
+                    throw new SpellLoadoutError(400, 'Invalid spell slot');
+                if (slotIndex >= slotType.maxPerCharacter)
+                    throw new SpellLoadoutError(400, 'Invalid spell slot index');
+                const knownSpell = await tx.characterSpellbook.findUnique({
+                    where: { characterId_spellId: { characterId: character.id, spellId: BigInt(spellId) } },
+                    select: { spellId: true },
+                });
+                if (!knownSpell)
+                    throw new SpellLoadoutError(400, 'Spell not learned');
+                await tx.characterSpellbookLoadout.upsert({
+                    where: { characterId_slotCode_slotIndex: { characterId: character.id, slotCode, slotIndex } },
+                    update: { spellId: BigInt(spellId) },
+                    create: { characterId: character.id, slotCode, slotIndex, spellId: BigInt(spellId) },
+                });
+            });
+        }
+        catch (err) {
+            if (err instanceof SpellLoadoutError)
+                return res.status(err.status).json({ error: err.message });
+            throw err;
+        }
+        const spells = await loadSpellState(character.id);
+        return res.json(spells);
+    }
+    catch (err) {
+        console.error(err);
+        return res.status(500).json({ error: 'Server error' });
+    }
+});
+app.delete('/api/characters/:id/spells/:slotCode/:slotIndex', authRequired, async (req, res) => {
+    try {
+        const userId = req.userId;
+        const characterId = Number(req.params.id);
+        const slotCode = String(req.params.slotCode || '').trim();
+        const slotIndex = Number(req.params.slotIndex);
+        if (!Number.isInteger(characterId) || characterId <= 0)
+            return res.status(400).json({ error: 'Invalid character id' });
+        if (!slotCode)
+            return res.status(400).json({ error: 'Invalid spell slot' });
+        if (!Number.isInteger(slotIndex) || slotIndex < 0)
+            return res.status(400).json({ error: 'Invalid spell slot index' });
+        const character = await prisma.character.findFirst({
+            where: { id: BigInt(characterId), userId: BigInt(userId), isNpc: false },
+            select: { id: true },
+        });
+        if (!character)
+            return res.status(404).json({ error: 'Character not found' });
+        const slotType = await prisma.spellSlotType.findUnique({ where: { code: slotCode }, select: { maxPerCharacter: true } });
+        if (!slotType)
+            return res.status(400).json({ error: 'Invalid spell slot' });
+        if (slotIndex >= slotType.maxPerCharacter)
+            return res.status(400).json({ error: 'Invalid spell slot index' });
+        await prisma.characterSpellbookLoadout.deleteMany({
+            where: { characterId: character.id, slotCode, slotIndex },
+        });
+        const spells = await loadSpellState(character.id);
+        return res.json(spells);
     }
     catch (err) {
         console.error(err);

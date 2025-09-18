@@ -38,7 +38,7 @@ async function main() {
     { code: 'twohand', name: 'Two-hand' },
   ];
 
-  const [attributes, ancestries, professions, slotTypes] = await Promise.all([
+  const [attributes, ancestries, professions, slotTypes, spellSlotTypes] = await Promise.all([
     Promise.all(
       attributeNames.map((name) =>
         db.attribute.upsert({ where: { name }, update: {}, create: { name } })
@@ -61,11 +61,21 @@ async function main() {
     Promise.all(
       slotTypeSeed.map((s) => db.slotType.upsert({ where: { code: s.code }, update: { name: s.name }, create: s }))
     ),
+    Promise.all(
+      spellSlotTypeSeed.map((s) =>
+        db.spellSlotType.upsert({
+          where: { code: s.code },
+          update: { name: s.name, maxPerCharacter: s.maxPerCharacter },
+          create: { code: s.code, name: s.name, maxPerCharacter: s.maxPerCharacter },
+        })
+      )
+    ),
   ]);
 
   const attrByName = Object.fromEntries(attributes.map((a) => [a.name, a]));
   const ancestryByName = Object.fromEntries(ancestries.map((a) => [a.name.toLowerCase(), a]));
   const slotByCode = Object.fromEntries(slotTypes.map((s) => [s.code, s]));
+  const spellSlotByCode = Object.fromEntries(spellSlotTypes.map((s) => [s.code, s]));
 
   // --- 2) Monsters ---
   const monstersData = [
