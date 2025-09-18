@@ -18,6 +18,11 @@ npm rm fix
 
 # Database (optional, if/when needed)
 docker compose up -d
+
+npx prisma migrate dev
+npx prisma generate
+npx prisma db seed
+
 # Configure .env with DATABASE_URL if using Prisma later
 
 # Adminer (Local)

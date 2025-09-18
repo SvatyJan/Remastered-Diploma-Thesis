@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom'
 import LoginPage from './pages/Login'
 import RegisterPage from './pages/Register'
 import CharactersPage from './pages/Characters'
+import CreateCharacterPage from './pages/CreateCharacter'
 import WorldPage from './pages/World'
 import CharacterPage from './pages/Character'
 import SocialPage from './pages/Social'
@@ -15,6 +16,7 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/characters" element={<CharactersPage />} />
+        <Route path="/characters/new" element={<CreateCharacterPage />} />
         <Route path="/world" element={<WorldPage />} />
         <Route path="/character" element={<CharacterPage />} />
         <Route path="/social" element={<SocialPage />} />

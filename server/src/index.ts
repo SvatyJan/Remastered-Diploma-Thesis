@@ -26,12 +26,21 @@ function authRequired(req: AuthedRequest, res: Response, next: NextFunction) {
 
 type UserRecord = { id: bigint | number; email: string; username: string }
 type CharacterRecord = { id: bigint | number; name: string; level: number; ancestryId: bigint | number }
+type AncestryRecord = { id: bigint | number; name: string; description: string | null }
 
 function toUserDto(user: UserRecord) {
   return {
     id: Number(user.id),
     email: user.email,
     username: user.username,
+  }
+}
+
+function toAncestryDto(ancestry: AncestryRecord) {
+  return {
+    id: Number(ancestry.id),
+    name: ancestry.name,
+    description: ancestry.description,
   }
 }
 
@@ -98,6 +107,19 @@ app.post('/api/login', async (req: Request, res: Response) => {
   }
 })
 
+app.get('/api/ancestries', authRequired, async (_req: AuthedRequest, res: Response) => {
+  try {
+    const items = await prisma.ancestry.findMany({
+      select: { id: true, name: true, description: true },
+      orderBy: { name: 'asc' },
+    })
+    return res.json({ items: items.map(toAncestryDto) })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
 // List characters for authed user
 app.get('/api/characters', authRequired, async (req: AuthedRequest, res: Response) => {
   const userId = req.userId!
@@ -115,14 +137,45 @@ app.post('/api/characters', authRequired, async (req: AuthedRequest, res: Respon
     const userId = req.userId!
     const { name, ancestryId } = req.body ?? {}
     if (!name) return res.status(400).json({ error: 'Missing name' })
-    const created = await prisma.character.create({
-      data: {
-        userId: BigInt(userId),
-        ancestryId: BigInt(ancestryId ?? 1),
-        name,
-      },
-      select: { id: true, name: true, level: true, ancestryId: true },
+
+    const ancestryIdNumber = Number(ancestryId)
+    if (!Number.isInteger(ancestryIdNumber) || ancestryIdNumber <= 0)
+      return res.status(400).json({ error: 'Invalid ancestry' })
+
+    const ancestry = await prisma.ancestry.findUnique({
+      where: { id: BigInt(ancestryIdNumber) },
+      select: { id: true },
     })
+    if (!ancestry) return res.status(404).json({ error: 'Ancestry not found' })
+
+    const baseAttributes = await prisma.attribute.findMany({
+      select: { id: true },
+      orderBy: { id: 'asc' },
+    })
+    if (baseAttributes.length === 0)
+      return res.status(500).json({ error: 'No base attributes configured' })
+
+    const created = await prisma.$transaction(async (tx: { character: { create: (arg0: { data: { userId: bigint; ancestryId: any; name: any }; select: { id: boolean; name: boolean; level: boolean; ancestryId: boolean } }) => any }; characterAttribute: { createMany: (arg0: { data: any }) => any } }) => {
+      const character = await tx.character.create({
+        data: {
+          userId: BigInt(userId),
+          ancestryId: ancestry.id,
+          name,
+        },
+        select: { id: true, name: true, level: true, ancestryId: true },
+      })
+
+      await tx.characterAttribute.createMany({
+        data: baseAttributes.map((attr: { id: any }) => ({
+          characterId: character.id,
+          attributeId: attr.id,
+          value: 1,
+        })),
+      })
+
+      return character
+    })
+
     return res.status(201).json({ item: toCharacterDto(created) })
   } catch (e) {
     console.error(e)
@@ -158,3 +211,8 @@ const PORT = Number(process.env.PORT || 4000)
 app.listen(PORT, () => {
   console.log(`API listening on http://localhost:${PORT}`)
 })
+
+
+
+
+

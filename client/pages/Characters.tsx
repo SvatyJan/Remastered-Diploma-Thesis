@@ -5,9 +5,7 @@ type Character = { id: number; name: string; level: number; ancestryId: number }
 
 export default function CharactersPage() {
   const [items, setItems] = useState<Character[]>([])
-  const [name, setName] = useState('')
   const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
   const [removingId, setRemovingId] = useState<number | null>(null)
   const navigate = useNavigate()
 
@@ -32,30 +30,6 @@ export default function CharactersPage() {
       }
     })()
   }, [navigate])
-
-  const onCreate = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError(null)
-    const token = localStorage.getItem('token')
-    if (!token) return navigate('/login')
-    try {
-      setLoading(true)
-      const res = await fetch('/api/characters', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data?.error || 'Failed to create character')
-      const created = parseCharacter(data.item)
-      setItems((prev) => [created, ...prev])
-      setName('')
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to create character')
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const onPlay = (character: Character) => {
     localStorage.setItem(
@@ -99,6 +73,10 @@ export default function CharactersPage() {
     }
   }
 
+  const onCreateNew = () => {
+    navigate('/characters/new')
+  }
+
   const onLogout = () => {
     localStorage.removeItem('token')
     localStorage.removeItem('activeCharacter')
@@ -107,10 +85,13 @@ export default function CharactersPage() {
 
   return (
     <div style={container}>
-      <h1>Character Selection / Creation</h1>
+      <h1>Character Selection</h1>
       <div style={panel}>
         <section>
-          <h2>My Characters</h2>
+          <div style={sectionHeader}>
+            <h2>My Characters</h2>
+            <button type="button" onClick={onCreateNew}>New character</button>
+          </div>
           {items.length === 0 ? (
             <p>No characters yet.</p>
           ) : (
@@ -135,20 +116,6 @@ export default function CharactersPage() {
             </ul>
           )}
         </section>
-        <section>
-          <h2>Create New</h2>
-          <form onSubmit={onCreate} style={{ display: 'flex', gap: 8 }}>
-            <input
-              placeholder="Name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-            />
-            <button type="submit" disabled={loading}>
-              {loading ? 'Creating...' : 'Create'}
-            </button>
-          </form>
-        </section>
         {error && <div style={{ color: 'crimson' }}>{error}</div>}
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={onLogout}>Log out</button>
@@ -170,6 +137,7 @@ function parseCharacter(raw: any): Character {
 
 const container: React.CSSProperties = { display: 'grid', placeItems: 'center', height: '100vh', gap: 8, fontFamily: 'system-ui, sans-serif' }
 const panel: React.CSSProperties = { display: 'grid', gap: 12, minWidth: 360 }
+const sectionHeader: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }
 const list: React.CSSProperties = { listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 8 }
 const listItem: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', border: '1px solid #ddd', borderRadius: 8 }
 const listActions: React.CSSProperties = { display: 'flex', gap: 8 }

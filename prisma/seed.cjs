@@ -6,11 +6,18 @@ async function main() {
   // --- 1) KATALOGY: Attributes, Ancestry, Professions, Slot types ---
   const attributeNames = [
     'health',
+    'armor',
+    'magic resist',
     'strength',
     'agility',
     'intelligence',
-    'armor',
-    'magic resist',
+  ];
+
+  const ancestrySeed = [
+    { name: 'Human', description: 'Versatile' },
+    { name: 'Elf', description: 'Agile' },
+    { name: 'Dwarf', description: 'Strong' },
+    { name: 'Merfolk', description: 'Magic' },
   ];
 
   const [attributes, ancestries, professions, slotTypes] = await Promise.all([
@@ -20,8 +27,12 @@ async function main() {
       )
     ),
     Promise.all(
-      ['human', 'elf', 'dwarf', 'orc', 'merfolk'].map((name) =>
-        db.ancestry.upsert({ where: { name }, update: {}, create: { name, description: null } })
+      ancestrySeed.map(({ name, description }) =>
+        db.ancestry.upsert({
+          where: { name },
+          update: { description },
+          create: { name, description },
+        })
       )
     ),
     Promise.all(
@@ -43,12 +54,12 @@ async function main() {
   ]);
 
   const attrByName = Object.fromEntries(attributes.map((a) => [a.name, a]));
-  const ancestryByName = Object.fromEntries(ancestries.map((a) => [a.name, a]));
+  const ancestryByName = Object.fromEntries(ancestries.map((a) => [a.name.toLowerCase(), a]));
   const slotByCode = Object.fromEntries(slotTypes.map((s) => [s.code, s]));
 
   // --- 2) Monsters ---
   const monstersData = [
-    { name: 'Goblin', ancestryName: 'orc', rarity: 'common', description: 'Small and pesky.' },
+    { name: 'Goblin', ancestryName: 'dwarf', rarity: 'common', description: 'Small and pesky.' },
     { name: 'Skeleton', ancestryName: 'human', rarity: 'common', description: 'Reanimated bones.' },
     { name: 'Merrow', ancestryName: 'merfolk', rarity: 'uncommon', description: 'Amphibious raider.' },
   ];
@@ -58,7 +69,7 @@ async function main() {
       update: {},
       create: {
         name: m.name,
-        ancestryId: ancestryByName[m.ancestryName].id,
+        ancestryId: ancestryByName[m.ancestryName.toLowerCase()].id,
         rarity: m.rarity,
         description: m.description,
       },
@@ -199,4 +210,11 @@ main()
     console.error(e);
     return db.$disconnect().finally(() => process.exit(1));
   });
+
+
+
+
+
+
+
 

@@ -140,6 +140,7 @@ model Character {
   partyMembers PartyMember[]
   partyInviter PartyInvite[]               @relation("PartyInviteInviter")
   partyInvitee PartyInvite[]               @relation("PartyInviteInvitee")
+  attributes   CharacterAttribute[]
 
   // quest relations via join table
   // (no direct field; use QuestMonster for lookup)
@@ -148,6 +149,18 @@ model Character {
   @@index([userId], map: "idx_character_user")
   @@index([ancestryId], map: "idx_character_ancestry")
   @@map("character")
+}
+
+model CharacterAttribute {
+  characterId BigInt @map("character_id")
+  attributeId BigInt @map("attribute_id")
+  value       Int    @default(1)
+
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "fk_character_attribute_character")
+  attribute Attribute @relation(fields: [attributeId], references: [id], onDelete: Cascade, onUpdate: Cascade, map: "fk_character_attribute_attribute")
+
+  @@id([characterId, attributeId])
+  @@map("character_attribute")
 }
 
 model Relationship {
@@ -212,6 +225,7 @@ model Attribute {
 
   image          Image?                  @relation(fields: [imageId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "fk_attribute_image")
   itemAttributes ItemTemplateAttribute[]
+  characterValues CharacterAttribute[]
 
   @@map("attribute")
 }
@@ -627,3 +641,8 @@ model CombatResult {
 
   @@map("combat_result")
 }
+
+
+
+
+
