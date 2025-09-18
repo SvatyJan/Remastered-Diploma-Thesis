@@ -24,6 +24,26 @@ function authRequired(req: AuthedRequest, res: Response, next: NextFunction) {
   }
 }
 
+type UserRecord = { id: bigint | number; email: string; username: string }
+type CharacterRecord = { id: bigint | number; name: string; level: number; ancestryId: bigint | number }
+
+function toUserDto(user: UserRecord) {
+  return {
+    id: Number(user.id),
+    email: user.email,
+    username: user.username,
+  }
+}
+
+function toCharacterDto(character: CharacterRecord) {
+  return {
+    id: Number(character.id),
+    name: character.name,
+    level: character.level,
+    ancestryId: Number(character.ancestryId),
+  }
+}
+
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok' })
 })
@@ -48,7 +68,7 @@ app.post('/api/register', async (req: Request, res: Response) => {
       select: { id: true, email: true, username: true },
     })
     const token = jwt.sign({ uid: Number(user.id) }, JWT_SECRET, { expiresIn: '7d' })
-    return res.status(201).json({ user, token })
+    return res.status(201).json({ user: toUserDto(user), token })
   } catch (err) {
     console.error(err)
     return res.status(500).json({ error: 'Server error' })
@@ -71,7 +91,7 @@ app.post('/api/login', async (req: Request, res: Response) => {
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' })
 
     const token = jwt.sign({ uid: Number(user.id) }, JWT_SECRET, { expiresIn: '7d' })
-    return res.json({ user: { id: user.id, email: user.email, username: user.username }, token })
+    return res.json({ user: toUserDto(user), token })
   } catch (err) {
     console.error(err)
     return res.status(500).json({ error: 'Server error' })
@@ -86,7 +106,7 @@ app.get('/api/characters', authRequired, async (req: AuthedRequest, res: Respons
     select: { id: true, name: true, level: true, ancestryId: true },
     orderBy: { dateCreated: 'desc' },
   })
-  return res.json({ items })
+  return res.json({ items: items.map(toCharacterDto) })
 })
 
 // Create simple character (temporary minimal payload)
@@ -103,7 +123,7 @@ app.post('/api/characters', authRequired, async (req: AuthedRequest, res: Respon
       },
       select: { id: true, name: true, level: true, ancestryId: true },
     })
-    return res.status(201).json({ item: created })
+    return res.status(201).json({ item: toCharacterDto(created) })
   } catch (e) {
     console.error(e)
     return res.status(500).json({ error: 'Server error' })
