@@ -20,6 +20,24 @@ async function main() {
     { name: 'Merfolk', description: 'Magic' },
   ];
 
+  const slotTypeSeed = [
+    { code: 'head', name: 'Head' },
+    { code: 'neck', name: 'Neck' },
+    { code: 'shoulder', name: 'Shoulder' },
+    { code: 'back', name: 'Back' },
+    { code: 'chest', name: 'Chest' },
+    { code: 'wrist', name: 'Wrist' },
+    { code: 'hands', name: 'Hands' },
+    { code: 'waist', name: 'Waist' },
+    { code: 'legs', name: 'Legs' },
+    { code: 'feet', name: 'Feet' },
+    { code: 'ring', name: 'Ring' },
+    { code: 'trinket', name: 'Trinket' },
+    { code: 'mainhand', name: 'Main-hand' },
+    { code: 'offhand', name: 'Off-hand' },
+    { code: 'twohand', name: 'Two-hand' },
+  ];
+
   const [attributes, ancestries, professions, slotTypes] = await Promise.all([
     Promise.all(
       attributeNames.map((name) =>
@@ -41,15 +59,7 @@ async function main() {
       )
     ),
     Promise.all(
-      [
-        { code: 'weapon', name: 'Weapon' },
-        { code: 'offhand', name: 'Off-hand' },
-        { code: 'head', name: 'Head' },
-        { code: 'chest', name: 'Chest' },
-        { code: 'legs', name: 'Legs' },
-        { code: 'ring', name: 'Ring' },
-        { code: 'amulet', name: 'Amulet' },
-      ].map((s) => db.slotType.upsert({ where: { code: s.code }, update: { name: s.name }, create: s }))
+      slotTypeSeed.map((s) => db.slotType.upsert({ where: { code: s.code }, update: { name: s.name }, create: s }))
     ),
   ]);
 
@@ -121,23 +131,23 @@ async function main() {
   const itemsData = [
     { name: 'Gold Coin', isConsumable: false, isEquipable: false, slotCode: null, rarity: 'common', valueGold: 1, description: 'Standard currency.' },
     { name: 'Diamond', isConsumable: false, isEquipable: false, slotCode: null, rarity: 'epic', valueGold: 0, description: 'Premium currency.' },
-    { name: 'Rusty Sword', isConsumable: false, isEquipable: true, slotCode: 'weapon', rarity: 'common', valueGold: 5, description: null, stats: { strength: 1 } },
-    { name: 'Iron Sword', isConsumable: false, isEquipable: true, slotCode: 'weapon', rarity: 'common', valueGold: 12, description: null, stats: { strength: 2 } },
-    { name: 'Steel Axe', isConsumable: false, isEquipable: true, slotCode: 'weapon', rarity: 'uncommon', valueGold: 30, description: null, stats: { strength: 3 } },
-    { name: 'Wizard Staff', isConsumable: false, isEquipable: true, slotCode: 'weapon', rarity: 'uncommon', valueGold: 28, description: null, stats: { intelligence: 3 } },
+    { name: 'Rusty Sword', isConsumable: false, isEquipable: true, slotCode: 'mainhand', rarity: 'common', valueGold: 5, description: null, stats: { strength: 1 } },
+    { name: 'Iron Sword', isConsumable: false, isEquipable: true, slotCode: 'mainhand', rarity: 'common', valueGold: 12, description: null, stats: { strength: 2 } },
+    { name: 'Steel Axe', isConsumable: false, isEquipable: true, slotCode: 'twohand', rarity: 'uncommon', valueGold: 30, description: null, stats: { strength: 3 } },
+    { name: 'Wizard Staff', isConsumable: false, isEquipable: true, slotCode: 'twohand', rarity: 'uncommon', valueGold: 28, description: null, stats: { intelligence: 3 } },
     { name: 'Leather Cap', isConsumable: false, isEquipable: true, slotCode: 'head', rarity: 'common', valueGold: 6, description: null, stats: { armor: 1, agility: 1 } },
     { name: 'Leather Tunic', isConsumable: false, isEquipable: true, slotCode: 'chest', rarity: 'common', valueGold: 10, description: null, stats: { armor: 2 } },
     { name: 'Chainmail', isConsumable: false, isEquipable: true, slotCode: 'chest', rarity: 'uncommon', valueGold: 40, description: null, stats: { armor: 4 } },
     { name: 'Wizard Hat', isConsumable: false, isEquipable: true, slotCode: 'head', rarity: 'uncommon', valueGold: 35, description: null, stats: { intelligence: 2, magicresist: 1 } },
     { name: 'Ruby Ring', isConsumable: false, isEquipable: true, slotCode: 'ring', rarity: 'rare', valueGold: 80, description: null, stats: { strength: 1, agility: 1 } },
-    { name: 'Amulet of Wits', isConsumable: false, isEquipable: true, slotCode: 'amulet', rarity: 'rare', valueGold: 90, description: null, stats: { intelligence: 2 } },
+    { name: 'Amulet of Wits', isConsumable: false, isEquipable: true, slotCode: 'neck', rarity: 'rare', valueGold: 90, description: null, stats: { intelligence: 2 } },
     { name: 'Wooden Shield', isConsumable: false, isEquipable: true, slotCode: 'offhand', rarity: 'common', valueGold: 8, description: null, stats: { armor: 2 } },
     { name: 'Kite Shield', isConsumable: false, isEquipable: true, slotCode: 'offhand', rarity: 'uncommon', valueGold: 26, description: null, stats: { armor: 4, magicresist: 1 } },
     { name: 'Health Potion (Minor)', isConsumable: true, isEquipable: false, slotCode: null, rarity: 'common', valueGold: 5, description: 'Restores health.' },
     { name: 'Health Potion (Major)', isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 18, description: 'Restores more health.' },
     { name: 'Stamina Elixir', isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 14, description: 'Boosts agility briefly.' },
     { name: 'Intellect Tonic', isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 14, description: 'Boosts intelligence briefly.' },
-    { name: 'Elven Longsword', isConsumable: false, isEquipable: true, slotCode: 'weapon', rarity: 'rare', valueGold: 120, description: null, stats: { strength: 4, agility: 2 } },
+    { name: 'Elven Longsword', isConsumable: false, isEquipable: true, slotCode: 'twohand', rarity: 'rare', valueGold: 120, description: null, stats: { strength: 4, agility: 2 } },
     { name: 'Runed Circlet', isConsumable: false, isEquipable: true, slotCode: 'head', rarity: 'epic', valueGold: 200, description: null, stats: { intelligence: 4, magicresist: 2 } },
   ];
 
@@ -210,11 +220,3 @@ main()
     console.error(e);
     return db.$disconnect().finally(() => process.exit(1));
   });
-
-
-
-
-
-
-
-

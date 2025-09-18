@@ -28,6 +28,21 @@ type UserRecord = { id: bigint | number; email: string; username: string }
 type CharacterRecord = { id: bigint | number; name: string; level: number; ancestryId: bigint | number }
 type AncestryRecord = { id: bigint | number; name: string; description: string | null }
 
+type CharacterAttributeRecord = { value: number; attribute: { name: string } }
+type InventoryRecord = {
+  id: bigint | number
+  amount: number
+  template: {
+    id: bigint | number
+    name: string
+    slug: string
+    description: string | null
+    slotCode: string | null
+    attributes: Array<{ value: number; attribute: { name: string } }>
+  }
+  equipped: { slotCode: string } | null
+}
+
 function toUserDto(user: UserRecord) {
   return {
     id: Number(user.id),
@@ -41,6 +56,30 @@ function toAncestryDto(ancestry: AncestryRecord) {
     id: Number(ancestry.id),
     name: ancestry.name,
     description: ancestry.description,
+  }
+}
+
+function toAttributeDto(record: CharacterAttributeRecord) {
+  return {
+    name: record.attribute.name,
+    value: record.value,
+  }
+}
+
+function toInventoryDto(item: InventoryRecord) {
+  return {
+    id: Number(item.id),
+    amount: item.amount,
+    name: item.template.name,
+    slug: item.template.slug,
+    description: item.template.description,
+    slotCode: item.template.slotCode,
+    allowedSlots: item.template.slotCode ? [item.template.slotCode] : [],
+    equippedSlot: item.equipped?.slotCode ?? null,
+    modifiers: item.template.attributes.map((attr) => ({
+      name: attr.attribute.name,
+      value: attr.value,
+    })),
   }
 }
 
@@ -131,6 +170,70 @@ app.get('/api/characters', authRequired, async (req: AuthedRequest, res: Respons
   return res.json({ items: items.map(toCharacterDto) })
 })
 
+app.get('/api/characters/:id', authRequired, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = req.userId!
+    const characterId = Number(req.params.id)
+    if (!Number.isFinite(characterId)) return res.status(400).json({ error: 'Invalid character id' })
+
+    const character = await prisma.character.findFirst({
+      where: { id: BigInt(characterId), userId: BigInt(userId) },
+      select: {
+        id: true,
+        name: true,
+        level: true,
+        ancestry: { select: { id: true, name: true, description: true } },
+        attributes: {
+          select: {
+            value: true,
+            attribute: { select: { name: true } },
+          },
+          orderBy: { attribute: { name: 'asc' } },
+        },
+        inventories: {
+          select: {
+            id: true,
+            amount: true,
+            template: {
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+                description: true,
+                slotCode: true,
+                attributes: {
+                  select: {
+                    value: true,
+                    attribute: { select: { name: true } },
+                  },
+                },
+              },
+            },
+            equipped: { select: { slotCode: true } },
+          },
+          orderBy: { dateCreated: 'asc' },
+        },
+      },
+    })
+
+    if (!character) return res.status(404).json({ error: 'Character not found' })
+
+    return res.json({
+      character: {
+        id: Number(character.id),
+        name: character.name,
+        level: character.level,
+        ancestry: character.ancestry ? toAncestryDto(character.ancestry) : null,
+      },
+      attributes: character.attributes.map(toAttributeDto),
+      inventory: character.inventories.map(toInventoryDto),
+    })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
 // Create simple character (temporary minimal payload)
 app.post('/api/characters', authRequired, async (req: AuthedRequest, res: Response) => {
   try {
@@ -155,7 +258,7 @@ app.post('/api/characters', authRequired, async (req: AuthedRequest, res: Respon
     if (baseAttributes.length === 0)
       return res.status(500).json({ error: 'No base attributes configured' })
 
-    const created = await prisma.$transaction(async (tx: { character: { create: (arg0: { data: { userId: bigint; ancestryId: any; name: any }; select: { id: boolean; name: boolean; level: boolean; ancestryId: boolean } }) => any }; characterAttribute: { createMany: (arg0: { data: any }) => any } }) => {
+    const created = await prisma.$transaction(async (tx) => {
       const character = await tx.character.create({
         data: {
           userId: BigInt(userId),
@@ -166,7 +269,7 @@ app.post('/api/characters', authRequired, async (req: AuthedRequest, res: Respon
       })
 
       await tx.characterAttribute.createMany({
-        data: baseAttributes.map((attr: { id: any }) => ({
+        data: baseAttributes.map((attr) => ({
           characterId: character.id,
           attributeId: attr.id,
           value: 1,
@@ -200,6 +303,84 @@ app.delete('/api/characters/:id', authRequired, async (req: AuthedRequest, res: 
       return res.status(404).json({ error: 'Character not found' })
 
     await prisma.character.delete({ where: { id: BigInt(characterId) } })
+    return res.status(204).send()
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.post('/api/characters/:id/equipment', authRequired, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = req.userId!
+    const characterId = Number(req.params.id)
+    const { inventoryId, slotCode } = req.body ?? {}
+    if (!Number.isInteger(characterId) || characterId <= 0) return res.status(400).json({ error: 'Invalid character id' })
+    if (!Number.isInteger(inventoryId) || inventoryId <= 0) return res.status(400).json({ error: 'Invalid inventory id' })
+    if (!slotCode || typeof slotCode !== 'string') return res.status(400).json({ error: 'Invalid slot code' })
+
+    const character = await prisma.character.findFirst({
+      where: { id: BigInt(characterId), userId: BigInt(userId) },
+      select: { id: true },
+    })
+    if (!character) return res.status(404).json({ error: 'Character not found' })
+
+    const inventory = await prisma.characterInventory.findFirst({
+      where: { id: BigInt(inventoryId), ownerCharacterId: character.id },
+      select: {
+        id: true,
+        template: { select: { slotCode: true } },
+      },
+    })
+    if (!inventory) return res.status(404).json({ error: 'Item not found' })
+    if (!inventory.template.slotCode) return res.status(400).json({ error: 'Item is not equipable' })
+    if (inventory.template.slotCode !== slotCode) return res.status(400).json({ error: 'Item cannot be equipped in this slot' })
+
+    await prisma.$transaction(async (tx) => {
+      await tx.characterEquipment.deleteMany({
+        where: {
+          characterId: character.id,
+          OR: [
+            { slotCode },
+            { characterInventoryId: inventory.id },
+          ],
+        },
+      })
+
+      await tx.characterEquipment.create({
+        data: {
+          characterId: character.id,
+          slotCode,
+          characterInventoryId: inventory.id,
+        },
+      })
+    })
+
+    return res.status(204).send()
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.delete('/api/characters/:id/equipment/:slotCode', authRequired, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = req.userId!
+    const characterId = Number(req.params.id)
+    const slotCode = req.params.slotCode
+    if (!Number.isInteger(characterId) || characterId <= 0) return res.status(400).json({ error: 'Invalid character id' })
+    if (!slotCode) return res.status(400).json({ error: 'Invalid slot code' })
+
+    const character = await prisma.character.findFirst({
+      where: { id: BigInt(characterId), userId: BigInt(userId) },
+      select: { id: true },
+    })
+    if (!character) return res.status(404).json({ error: 'Character not found' })
+
+    await prisma.characterEquipment.deleteMany({
+      where: { characterId: character.id, slotCode },
+    })
+
     return res.status(204).send()
   } catch (err) {
     console.error(err)

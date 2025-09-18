@@ -107,7 +107,7 @@ export default function CreateCharacterPage() {
                 ))}
               </div>
             </fieldset>
-            {error && fetchState !== 'error' && <div style={{ color: 'crimson' }}>{error}</div>}
+            {fetchState === 'idle' && error && <div style={{ color: 'crimson' }}>{error}</div>}
             <div style={actions}>
               <button type="submit" disabled={disableSubmit}>
                 {submitState === SubmitState.Submitting ? 'Creating...' : 'Create character'}
