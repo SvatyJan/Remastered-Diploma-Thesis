@@ -1,0 +1,1 @@
+ALTER TABLE item_template ADD COLUMN in_shop BOOLEAN NOT NULL DEFAULT 0;

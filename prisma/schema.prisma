@@ -250,6 +250,7 @@ model ItemTemplate {
   rarity       Rarity  @default(common)
   valueGold    Int     @default(0) @map("value_gold")
   description  String?
+  inShop      Boolean @default(false) @map("in_shop")
 
   imageId BigInt? @map("image_id")
 

@@ -129,26 +129,26 @@ async function main() {
 
   // --- 5) Items ---
   const itemsData = [
-    { name: 'Gold Coin', isConsumable: false, isEquipable: false, slotCode: null, rarity: 'common', valueGold: 1, description: 'Standard currency.' },
-    { name: 'Diamond', isConsumable: false, isEquipable: false, slotCode: null, rarity: 'epic', valueGold: 0, description: 'Premium currency.' },
-    { name: 'Rusty Sword', isConsumable: false, isEquipable: true, slotCode: 'mainhand', rarity: 'common', valueGold: 5, description: null, stats: { strength: 1 } },
-    { name: 'Iron Sword', isConsumable: false, isEquipable: true, slotCode: 'mainhand', rarity: 'common', valueGold: 12, description: null, stats: { strength: 2 } },
-    { name: 'Steel Axe', isConsumable: false, isEquipable: true, slotCode: 'twohand', rarity: 'uncommon', valueGold: 30, description: null, stats: { strength: 3 } },
-    { name: 'Wizard Staff', isConsumable: false, isEquipable: true, slotCode: 'twohand', rarity: 'uncommon', valueGold: 28, description: null, stats: { intelligence: 3 } },
-    { name: 'Leather Cap', isConsumable: false, isEquipable: true, slotCode: 'head', rarity: 'common', valueGold: 6, description: null, stats: { armor: 1, agility: 1 } },
-    { name: 'Leather Tunic', isConsumable: false, isEquipable: true, slotCode: 'chest', rarity: 'common', valueGold: 10, description: null, stats: { armor: 2 } },
-    { name: 'Chainmail', isConsumable: false, isEquipable: true, slotCode: 'chest', rarity: 'uncommon', valueGold: 40, description: null, stats: { armor: 4 } },
-    { name: 'Wizard Hat', isConsumable: false, isEquipable: true, slotCode: 'head', rarity: 'uncommon', valueGold: 35, description: null, stats: { intelligence: 2, magicresist: 1 } },
-    { name: 'Ruby Ring', isConsumable: false, isEquipable: true, slotCode: 'ring', rarity: 'rare', valueGold: 80, description: null, stats: { strength: 1, agility: 1 } },
-    { name: 'Amulet of Wits', isConsumable: false, isEquipable: true, slotCode: 'neck', rarity: 'rare', valueGold: 90, description: null, stats: { intelligence: 2 } },
-    { name: 'Wooden Shield', isConsumable: false, isEquipable: true, slotCode: 'offhand', rarity: 'common', valueGold: 8, description: null, stats: { armor: 2 } },
-    { name: 'Kite Shield', isConsumable: false, isEquipable: true, slotCode: 'offhand', rarity: 'uncommon', valueGold: 26, description: null, stats: { armor: 4, magicresist: 1 } },
-    { name: 'Health Potion (Minor)', isConsumable: true, isEquipable: false, slotCode: null, rarity: 'common', valueGold: 5, description: 'Restores health.' },
-    { name: 'Health Potion (Major)', isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 18, description: 'Restores more health.' },
-    { name: 'Stamina Elixir', isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 14, description: 'Boosts agility briefly.' },
-    { name: 'Intellect Tonic', isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 14, description: 'Boosts intelligence briefly.' },
-    { name: 'Elven Longsword', isConsumable: false, isEquipable: true, slotCode: 'twohand', rarity: 'rare', valueGold: 120, description: null, stats: { strength: 4, agility: 2 } },
-    { name: 'Runed Circlet', isConsumable: false, isEquipable: true, slotCode: 'head', rarity: 'epic', valueGold: 200, description: null, stats: { intelligence: 4, magicresist: 2 } },
+    { name: 'Gold Coin', isConsumable: false, isEquipable: false, slotCode: null, rarity: 'common', valueGold: 1, description: 'Standard currency.', inShop: false },
+    { name: 'Diamond', isConsumable: false, isEquipable: false, slotCode: null, rarity: 'epic', valueGold: 0, description: 'Premium currency.', inShop: false },
+    { name: 'Rusty Sword', inShop: true, isConsumable: false, isEquipable: true, slotCode: 'mainhand', rarity: 'common', valueGold: 5, description: null, stats: { strength: 1 } },
+    { name: 'Iron Sword', inShop: true, isConsumable: false, isEquipable: true, slotCode: 'mainhand', rarity: 'common', valueGold: 12, description: null, stats: { strength: 2 } },
+    { name: 'Steel Axe', inShop: true, isConsumable: false, isEquipable: true, slotCode: 'twohand', rarity: 'uncommon', valueGold: 30, description: null, stats: { strength: 3 } },
+    { name: 'Wizard Staff', inShop: true, isConsumable: false, isEquipable: true, slotCode: 'twohand', rarity: 'uncommon', valueGold: 28, description: null, stats: { intelligence: 3 } },
+    { name: 'Leather Cap', inShop: true, isConsumable: false, isEquipable: true, slotCode: 'head', rarity: 'common', valueGold: 6, description: null, stats: { armor: 1, agility: 1 } },
+    { name: 'Leather Tunic', inShop: true, isConsumable: false, isEquipable: true, slotCode: 'chest', rarity: 'common', valueGold: 10, description: null, stats: { armor: 2 } },
+    { name: 'Chainmail', inShop: true, isConsumable: false, isEquipable: true, slotCode: 'chest', rarity: 'uncommon', valueGold: 40, description: null, stats: { armor: 4 } },
+    { name: 'Wizard Hat', inShop: true, isConsumable: false, isEquipable: true, slotCode: 'head', rarity: 'uncommon', valueGold: 35, description: null, stats: { intelligence: 2, magicresist: 1 } },
+    { name: 'Ruby Ring', inShop: true, isConsumable: false, isEquipable: true, slotCode: 'ring', rarity: 'rare', valueGold: 80, description: null, stats: { strength: 1, agility: 1 } },
+    { name: 'Amulet of Wits', inShop: true, isConsumable: false, isEquipable: true, slotCode: 'neck', rarity: 'rare', valueGold: 90, description: null, stats: { intelligence: 2 } },
+    { name: 'Wooden Shield', inShop: true, isConsumable: false, isEquipable: true, slotCode: 'offhand', rarity: 'common', valueGold: 8, description: null, stats: { armor: 2 } },
+    { name: 'Kite Shield', inShop: true, isConsumable: false, isEquipable: true, slotCode: 'offhand', rarity: 'uncommon', valueGold: 26, description: null, stats: { armor: 4, magicresist: 1 } },
+    { name: 'Health Potion (Minor)', inShop: true, isConsumable: true, isEquipable: false, slotCode: null, rarity: 'common', valueGold: 5, description: 'Restores health.' },
+    { name: 'Health Potion (Major)', inShop: true, isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 18, description: 'Restores more health.' },
+    { name: 'Stamina Elixir', inShop: true, isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 14, description: 'Boosts agility briefly.' },
+    { name: 'Intellect Tonic', inShop: true, isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 14, description: 'Boosts intelligence briefly.' },
+    { name: 'Elven Longsword', inShop: true, isConsumable: false, isEquipable: true, slotCode: 'twohand', rarity: 'rare', valueGold: 120, description: null, stats: { strength: 4, agility: 2 } },
+    { name: 'Runed Circlet', inShop: true, isConsumable: false, isEquipable: true, slotCode: 'head', rarity: 'epic', valueGold: 200, description: null, stats: { intelligence: 4, magicresist: 2 } },
   ];
 
   const statToAttributeId = (k) => {
@@ -176,10 +176,24 @@ async function main() {
         rarity: it.rarity,
         valueGold: it.valueGold,
         description: it.description,
+        inShop: Boolean(it.inShop),
       },
     }).catch(async () => {
       const existing = await db.itemTemplate.findFirst({ where: { name: it.name } });
-      if (existing) return existing;
+      if (existing) {
+        return db.itemTemplate.update({
+          where: { id: existing.id },
+          data: {
+            isConsumable: it.isConsumable,
+            isEquipable: it.isEquipable,
+            slotCode: it.slotCode ? slotByCode[it.slotCode]?.code ?? null : null,
+            rarity: it.rarity,
+            valueGold: it.valueGold,
+            description: it.description,
+            inShop: Boolean(it.inShop),
+          },
+        });
+      }
       return db.itemTemplate.create({
         data: {
           name: it.name,
@@ -190,6 +204,7 @@ async function main() {
           rarity: it.rarity,
           valueGold: it.valueGold,
           description: it.description,
+          inShop: Boolean(it.inShop),
         },
       });
     });
