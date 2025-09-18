@@ -130,6 +130,30 @@ app.post('/api/characters', authRequired, async (req: AuthedRequest, res: Respon
   }
 })
 
+// Delete character
+app.delete('/api/characters/:id', authRequired, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = req.userId!
+    const characterId = Number(req.params.id)
+    if (!Number.isFinite(characterId)) return res.status(400).json({ error: 'Invalid character id' })
+
+    const expectedUserId = BigInt(userId)
+    const existing = await prisma.character.findUnique({
+      where: { id: BigInt(characterId) },
+      select: { userId: true },
+    })
+
+    if (!existing || existing.userId === null || existing.userId !== expectedUserId)
+      return res.status(404).json({ error: 'Character not found' })
+
+    await prisma.character.delete({ where: { id: BigInt(characterId) } })
+    return res.status(204).send()
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
 const PORT = Number(process.env.PORT || 4000)
 app.listen(PORT, () => {
   console.log(`API listening on http://localhost:${PORT}`)

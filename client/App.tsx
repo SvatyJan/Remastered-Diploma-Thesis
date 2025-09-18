@@ -3,6 +3,10 @@ import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom'
 import LoginPage from './pages/Login'
 import RegisterPage from './pages/Register'
 import CharactersPage from './pages/Characters'
+import WorldPage from './pages/World'
+import CharacterPage from './pages/Character'
+import SocialPage from './pages/Social'
+import ShopPage from './pages/Shop'
 
 export default function App() {
   return (
@@ -11,6 +15,10 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/characters" element={<CharactersPage />} />
+        <Route path="/world" element={<WorldPage />} />
+        <Route path="/character" element={<CharacterPage />} />
+        <Route path="/social" element={<SocialPage />} />
+        <Route path="/shop" element={<ShopPage />} />
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
@@ -34,4 +42,3 @@ const container: React.CSSProperties = {
   gap: 12,
   fontFamily: 'system-ui, sans-serif',
 }
-
