@@ -115,14 +115,21 @@ async function main() {
     'Poison Dagger',
   ];
   const slugify = (s) => s.toLowerCase().replace(/\s+/g, '-');
+  const inferSpellSlotCode = (name) => {
+    const lower = name.toLowerCase();
+    if (lower.startsWith('passive')) return 'passive';
+    if (lower.includes('ultimate')) return 'ultimate';
+    return 'spell';
+  };
   await Promise.all(
-    spellNames.map((name) =>
-      db.spell.upsert({
+    spellNames.map((name) => {
+      const slotCode = inferSpellSlotCode(name);
+      return db.spell.upsert({
         where: { name },
-        update: { slotCode: 'spell' },
-        create: { name, slug: slugify(name), description: null, cooldown: 0, slotCode: 'spell' },
-      })
-    )
+        update: { slotCode },
+        create: { name, slug: slugify(name), description: null, cooldown: 0, slotCode },
+      });
+    })
   );
 
   // --- 4) Effects ---

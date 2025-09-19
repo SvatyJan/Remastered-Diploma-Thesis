@@ -36,7 +36,7 @@ type Item = {
   icon: string
 }
 
-type ApiSpell = { id: number; name: string; slug: string; description: string | null; cooldown: number }
+type ApiSpell = { id: number; name: string; slug: string; description: string | null; cooldown: number; slotCode: string }
 
 type ApiLearnedSpell = ApiSpell & { level: number }
 
@@ -49,6 +49,7 @@ type Spell = {
   cooldown: number
   level?: number
   icon: string
+  slotCode: string
 }
 
 type SpellSlot = {
@@ -74,7 +75,7 @@ type DragPayload =
   | { kind: 'item'; inventoryId: number }
   | { kind: 'spell'; spellId: number; fromSlot?: { slotCode: string; slotIndex: number } }
 
-type DraggingSpellState = { spellId: number; fromSlot?: { slotCode: string; slotIndex: number } }
+type DraggingSpellState = { spellId: number; slotCode: string; fromSlot?: { slotCode: string; slotIndex: number } }
 
 type TabKey = 'inventory' | 'spellbook'
 
@@ -111,6 +112,16 @@ const SPELL_SLOT_BLUEPRINT: SlotBlueprint[] = [
 ]
 
 const SPELL_SLOT_BLUEPRINT_KEYS = new Set(SPELL_SLOT_BLUEPRINT.map(toSlotKey))
+
+const SLOT_CODE_LABELS: Record<string, string> = {
+  passive: 'Passive',
+  spell: 'Spell',
+  ultimate: 'Ultimate',
+}
+
+function slotCodeToLabel(slotCode: string) {
+  return SLOT_CODE_LABELS[slotCode] ?? slotCode
+}
 export default function CharacterPage() {
   useRequireGameSession()
   const [character, setCharacter] = useState<CharacterSummary | null>(null)
@@ -337,11 +348,8 @@ export default function CharacterPage() {
       event.dataTransfer.setData('application/json', JSON.stringify(payload))
       event.dataTransfer.effectAllowed = 'move'
       event.dataTransfer.setDragImage(event.currentTarget as HTMLElement, 24, 24)
-      if (payload.kind === 'spell') {
-        setDraggingSpell({ spellId: payload.spellId, fromSlot: payload.fromSlot });
-      } else {
-        setDraggingSpell({ spellId: spell.id });
-      }
+      const slotCode = payload.fromSlot?.slotCode ?? spell.slotCode
+      setDraggingSpell({ spellId: payload.spellId, slotCode, fromSlot: payload.fromSlot })
     },
     [],
   )
@@ -365,6 +373,19 @@ export default function CharacterPage() {
       if (sourceSlot && toSlotKey(sourceSlot) === toSlotKey(targetSlot)) return
 
       const targetSpell = targetSlot.spell
+      const incomingSlotCode = sourceSlot ? sourceSlot.slotCode : incomingSpell.slotCode
+      if (incomingSlotCode !== targetSlot.slotCode) {
+        setError(`Cannot place ${slotCodeToLabel(incomingSlotCode)} spells into ${targetSlot.slotName}.`)
+        setDraggingSpell(null)
+        setTooltip((current) => (current?.kind === 'spell' ? null : current))
+        return
+      }
+      if (sourceSlot && targetSpell && targetSpell.slotCode !== sourceSlot.slotCode) {
+        setError('Cannot swap spells between different slot types.')
+        setDraggingSpell(null)
+        setTooltip((current) => (current?.kind === 'spell' ? null : current))
+        return
+      }
 
       try {
         const token = localStorage.getItem('token')
@@ -662,6 +683,7 @@ export default function CharacterPage() {
               {tooltipSpell.description && (
                 <span style={{ display: 'block', marginBottom: 8 }}>{tooltipSpell.description}</span>
               )}
+              <div>{`Slot: ${slotCodeToLabel(tooltipSpell.slotCode)}`}</div>
               <div>{`Cooldown: ${tooltipSpell.cooldown}s`}</div>
               {tooltipSpell.level !== undefined && <div>{`Level: ${tooltipSpell.level}`}</div>}
             </>
@@ -937,27 +959,36 @@ type SpellListProps = {
 function SpellList({ spells, allowInteraction, onSpellDragStart, onSpellDragEnd, onSpellHover, onSpellLeave }: SpellListProps) {
   return (
     <div style={spellList}>
-      {spells.map((spell) => (
-        <div
-          key={spell.id}
-          draggable={allowInteraction}
-          onDragStart={allowInteraction ? onSpellDragStart(spell, 'library') : undefined}
-          onDragEnd={allowInteraction ? onSpellDragEnd : undefined}
-          onMouseMove={onSpellHover(spell)}
-          onMouseLeave={onSpellLeave}
-          style={{
-            ...spellCard,
-            cursor: allowInteraction ? 'grab' : 'default',
-            opacity: allowInteraction ? 1 : 0.9,
-          }}
-        >
-          <span style={spellIcon}>{spell.icon}</span>
-          <div>
-            <div style={spellName}>{spell.name}</div>
-            <div style={spellMeta}>{`Cooldown ${spell.cooldown}s`}</div>
+      {spells.map((spell) => {
+        const slotLabel = slotCodeToLabel(spell.slotCode)
+        return (
+          <div
+            key={spell.id}
+            draggable={allowInteraction}
+            onDragStart={allowInteraction ? onSpellDragStart(spell, 'library') : undefined}
+            onDragEnd={allowInteraction ? onSpellDragEnd : undefined}
+            onMouseMove={onSpellHover(spell)}
+            onMouseLeave={onSpellLeave}
+            style={{
+              ...spellCard,
+              cursor: allowInteraction ? 'grab' : 'default',
+              opacity: allowInteraction ? 1 : 0.9,
+            }}
+          >
+            <span style={spellIcon}>{spell.icon}</span>
+            <div>
+              <div style={spellName}>{spell.name}</div>
+              <div style={spellMeta}>{`${slotLabel} · Cooldown ${spell.cooldown}s`}</div>
+
+
+
+
+
+
+            </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -1048,7 +1079,21 @@ function SpellSlot({
       draggingSpell.fromSlot.slotCode === slot.slotCode &&
       draggingSpell.fromSlot.slotIndex === slot.slotIndex,
   )
-  const isActiveDrop = Boolean(draggingSpell && !isSelfDragged)
+  const canAccept = !draggingSpell || draggingSpell.slotCode === slot.slotCode
+  const isActiveDrop = Boolean(draggingSpell && !isSelfDragged && canAccept)
+  const isRejectingDrop = Boolean(draggingSpell && !isSelfDragged && !canAccept)
+  const borderColor = isRejectingDrop
+    ? '#ef4444'
+    : isActiveDrop
+    ? '#3f7ac3'
+    : hasSpell
+    ? '#3fc380'
+    : '#3b4253'
+  const background = hasSpell
+    ? 'rgba(40,46,58,0.6)'
+    : isRejectingDrop
+    ? 'rgba(153,27,27,0.2)'
+    : 'rgba(15,18,24,0.55)'
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Delete') {
@@ -1064,12 +1109,25 @@ function SpellSlot({
       onClick={onFocus}
       onKeyDown={allowInteraction ? handleKeyDown : undefined}
       onDrop={(event) => {
+        if (draggingSpell && draggingSpell.slotCode !== slot.slotCode) {
+          event.preventDefault()
+          return
+        }
         onDrop(event)
       }}
-      onDragOver={onDragOver}
+      onDragOver={(event) => {
+        if (!allowInteraction) return
+        if (draggingSpell && draggingSpell.slotCode !== slot.slotCode) {
+          event.preventDefault()
+          event.dataTransfer.dropEffect = 'none'
+          return
+        }
+        onDragOver(event)
+      }}
       style={{
         ...spellSlotCard,
-        borderColor: isActiveDrop ? '#3f7ac3' : hasSpell ? '#3fc380' : '#3b4253',
+        borderColor,
+        background,
         boxShadow: isFocused ? '0 0 0 2px rgba(63, 122, 195, 0.35)' : 'none',
       }}
     >
@@ -1094,12 +1152,12 @@ function SpellSlot({
           <div>
             <div style={spellName}>{slot.spell.name}</div>
             <div style={spellMeta}>
-              {slot.spell.level ? `Level ${slot.spell.level}` : 'Level N/A'} - {`Cooldown ${slot.spell.cooldown}s`}
+              {slot.spell.level ? `Level ${slot.spell.level}` : 'Level N/A'} · {`Cooldown ${slot.spell.cooldown}s`}
             </div>
           </div>
         </div>
       ) : (
-        <div style={spellSlotEmpty}>{allowInteraction ? 'Drop a spell here' : 'No spell assigned'}</div>
+        <div style={spellSlotEmpty}>{draggingSpell && draggingSpell.slotCode !== slot.slotCode ? `Requires ${slot.slotName}` : allowInteraction ? 'Drop a spell here' : 'No spell assigned'}</div>
       )}
     </div>
   )
@@ -1174,6 +1232,7 @@ function buildSpell(spell: ApiSpell | ApiLearnedSpell): Spell {
     cooldown: spell.cooldown,
     level: 'level' in spell ? (spell as ApiLearnedSpell).level : undefined,
     icon: createIconFromName(spell.name),
+    slotCode: spell.slotCode,
   }
 }
 

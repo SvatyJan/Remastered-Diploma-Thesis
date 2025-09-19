@@ -127,13 +127,14 @@ function toVendorItem(template: ShopTemplateRecord) {
   }
 }
 
-function toSpellDto(spell: { id: bigint | number; name: string; slug: string; description: string | null; cooldown: number }) {
+function toSpellDto(spell: { id: bigint | number; name: string; slug: string; description: string | null; cooldown: number; slotCode: string }) {
   return {
     id: Number(spell.id),
     name: spell.name,
     slug: spell.slug,
     description: spell.description,
     cooldown: spell.cooldown,
+    slotCode: spell.slotCode,
   }
 }
 
@@ -553,6 +554,8 @@ async function loadSpellState(characterId: bigint) {
             slug: true,
             description: true,
             cooldown: true,
+            slotCode: true,
+
           },
         },
       },
@@ -888,9 +891,11 @@ app.post('/api/characters/:id/spells', authRequired, async (req: AuthedRequest, 
         if (slotIndex >= slotType.maxPerCharacter) throw new SpellLoadoutError(400, 'Invalid spell slot index')
         const knownSpell = await tx.characterSpellbook.findUnique({
           where: { characterId_spellId: { characterId: character.id, spellId: BigInt(spellId) } },
-          select: { spellId: true },
+          select: { spellId: true, spell: { select: { slotCode: true } } },
         })
         if (!knownSpell) throw new SpellLoadoutError(400, 'Spell not learned')
+        if ((knownSpell.spell?.slotCode ?? 'spell') !== slotCode)
+          throw new SpellLoadoutError(400, 'Spell cannot be assigned to this slot')
         await tx.characterSpellbookLoadout.upsert({
           where: { characterId_slotCode_slotIndex: { characterId: character.id, slotCode, slotIndex } },
           update: { spellId: BigInt(spellId) },
