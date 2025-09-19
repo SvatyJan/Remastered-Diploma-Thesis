@@ -35,7 +35,12 @@ async function main() {
     { code: 'trinket', name: 'Trinket' },
     { code: 'mainhand', name: 'Main-hand' },
     { code: 'offhand', name: 'Off-hand' },
-    { code: 'twohand', name: 'Two-hand' },
+  ];
+
+  const spellSlotTypeSeed = [
+    { code: 'spell', name: 'Spell', maxPerCharacter: 3 },
+    { code: 'passive', name: 'Passive', maxPerCharacter: 1 },
+    { code: 'ultimate', name: 'Ultimate', maxPerCharacter: 1 },
   ];
 
   const [attributes, ancestries, professions, slotTypes, spellSlotTypes] = await Promise.all([
@@ -114,8 +119,8 @@ async function main() {
     spellNames.map((name) =>
       db.spell.upsert({
         where: { name },
-        update: {},
-        create: { name, slug: slugify(name), description: null, cooldown: 0 },
+        update: { slotCode: 'spell' },
+        create: { name, slug: slugify(name), description: null, cooldown: 0, slotCode: 'spell' },
       })
     )
   );

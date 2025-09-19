@@ -311,9 +311,11 @@ model Spell {
   slug        String  @unique
   description String?
   cooldown    Int     @default(0)
+  slotCode    String  @map("slot_code") @db.VarChar(32) @default("spell")
   imageId     BigInt? @map("image_id")
 
   image     Image?                      @relation(fields: [imageId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "fk_spell_image")
+  slot      SpellSlotType               @relation(fields: [slotCode], references: [code], onDelete: Restrict, onUpdate: Cascade)
   spellbook CharacterSpellbook[]
   loadouts  CharacterSpellbookLoadout[]
 
@@ -326,6 +328,7 @@ model SpellSlotType {
   maxPerCharacter Int    @default(1) @map("max_per_character")
 
   loadouts CharacterSpellbookLoadout[]
+  spells   Spell[]
 
   @@map("spell_slot_type")
 }

@@ -684,6 +684,7 @@ app.get('/api/characters/:id', authRequired, async (req: AuthedRequest, res: Res
     const inventorySource = isSelf
       ? character.inventories
       : character.inventories.filter((item) => item.equipped !== null)
+    const spellbookState = await loadSpellState(character.id)
 
     return res.json({
       character: {
@@ -695,6 +696,10 @@ app.get('/api/characters/:id', authRequired, async (req: AuthedRequest, res: Res
       },
       attributes: character.attributes.map(toAttributeDto),
       inventory: inventorySource.map(toInventoryDto),
+      spellbook: {
+        slots: spellbookState.slots,
+        learned: isSelf ? spellbookState.learned : [],
+      },
     })
   } catch (err) {
     console.error(err)
