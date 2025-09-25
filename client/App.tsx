@@ -9,6 +9,7 @@ import CharacterPage from './pages/Character'
 import SocialPage from './pages/Social'
 import ShopPage from './pages/Shop'
 import BattlePage from './pages/Battle'
+import CombatPage from './pages/Combat'
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="/character/:id" element={<CharacterPage />} />
         <Route path="/social" element={<SocialPage />} />
         <Route path="/battle" element={<BattlePage />} />
+        <Route path="/combat/:id" element={<CombatPage />} />
         <Route path="/shop" element={<ShopPage />} />
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="*" element={<NotFound />} />

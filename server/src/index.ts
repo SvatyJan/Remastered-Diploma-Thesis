@@ -175,6 +175,297 @@ function toCharacterDto(character: CharacterRecord) {
   }
 }
 
+type AttributeLookup = Record<string, number>
+
+type ActionTypeKey = 'spell1' | 'attack' | 'move' | 'defend' | 'wait'
+
+type ActionDefinition = {
+  key: ActionTypeKey
+  label: string
+  description: string
+  range?: number
+  manaCost?: number
+  cooldown?: number
+}
+
+const COMBAT_BOARD_WIDTH = 8
+const COMBAT_BOARD_HEIGHT = 8
+const SPELL1_MANA_COST = 5
+const SPELL1_RANGE = 3
+const SPELL1_COOLDOWN = 2
+
+type StatBlock = {
+  str: number
+  agi: number
+  int: number
+  spd: number
+  hpMax: number
+  manaMax: number
+}
+
+type CombatantTemplate = {
+  id: 'player' | 'enemy'
+  name: string
+  team: number
+  isAi: boolean
+  level: number
+  statBlock: StatBlock
+  position: { x: number; y: number }
+}
+
+type RuntimeCombatant = CombatantTemplate & {
+  hp: number
+  mana: number
+  cooldowns: { spell1: number }
+  defending: boolean
+}
+
+type SimulationRoundLog = { round: number; log: string[] }
+
+type CombatSimulationResult = {
+  winner: 'player' | 'enemy'
+  totalRounds: number
+  rounds: SimulationRoundLog[]
+  player: { hp: number; mana: number; position: { x: number; y: number } }
+  enemy: { hp: number; mana: number; position: { x: number; y: number } }
+}
+
+const ACTION_LIBRARY: Record<ActionTypeKey, ActionDefinition> = {
+  spell1: {
+    key: 'spell1',
+    label: 'Spell 1',
+    description: 'Range 3, deals 2x INT damage, costs 5 mana, cooldown 2 rounds.',
+    range: SPELL1_RANGE,
+    manaCost: SPELL1_MANA_COST,
+    cooldown: SPELL1_COOLDOWN,
+  },
+  attack: {
+    key: 'attack',
+    label: 'Attack',
+    description: 'Melee strike dealing ceil(1.5x STR) +/- rng(0..2).',
+    range: 1,
+  },
+  move: {
+    key: 'move',
+    label: 'Move',
+    description: 'Advance 1 tile towards the opponent.',
+  },
+  defend: {
+    key: 'defend',
+    label: 'Defend',
+    description: 'Reduce incoming damage by 50% until the end of the round.',
+  },
+  wait: {
+    key: 'wait',
+    label: 'Wait',
+    description: 'Skip the turn.',
+  },
+}
+
+function attributesToLookup(records: CharacterAttributeRecord[]): AttributeLookup {
+  const map: AttributeLookup = {}
+  for (const record of records) {
+    map[record.attribute.name.toLowerCase()] = record.value
+  }
+  return map
+}
+
+function buildStatBlock(attrs: AttributeLookup, level: number): StatBlock {
+  const baseStrength = attrs.strength ?? attrs.str ?? 12
+  const baseAgility = attrs.agility ?? attrs.agi ?? 12
+  const baseInt = attrs.intelligence ?? attrs.int ?? 12
+  const baseSpeed = attrs.speed ?? attrs.spd ?? baseAgility
+  const baseHealth = attrs.health ?? 90 + level * 6
+  const baseMana = attrs.mana ?? 45 + level * 4
+  const str = Math.max(1, Math.round(baseStrength))
+  const agi = Math.max(1, Math.round(baseAgility))
+  const intStat = Math.max(1, Math.round(baseInt))
+  const spd = Math.max(1, Math.round(baseSpeed))
+  const hpMax = Math.max(30, Math.round(baseHealth + str * 4))
+  const manaMax = Math.max(0, Math.round(baseMana + intStat * 2))
+  return { str, agi, int: intStat, spd, hpMax, manaMax }
+}
+
+function randomInt(min: number, max: number) {
+  return Math.floor(Math.random() * (max - min + 1)) + min
+}
+
+function manhattanDistance(a: { x: number; y: number }, b: { x: number; y: number }) {
+  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y)
+}
+
+function clampToBoard(pos: { x: number; y: number }) {
+  return {
+    x: Math.max(0, Math.min(COMBAT_BOARD_WIDTH - 1, pos.x)),
+    y: Math.max(0, Math.min(COMBAT_BOARD_HEIGHT - 1, pos.y)),
+  }
+}
+
+function stepTowards(from: { x: number; y: number }, target: { x: number; y: number }) {
+  const dx = target.x - from.x
+  const dy = target.y - from.y
+  if (Math.abs(dx) >= Math.abs(dy) && dx !== 0) {
+    return clampToBoard({ x: from.x + Math.sign(dx), y: from.y })
+  }
+  if (dy !== 0) {
+    return clampToBoard({ x: from.x, y: from.y + Math.sign(dy) })
+  }
+  return { ...from }
+}
+
+function clonePosition(pos: { x: number; y: number }) {
+  return { x: pos.x, y: pos.y }
+}
+
+function planAction(actor: RuntimeCombatant, opponent: RuntimeCombatant): ActionTypeKey {
+  const dist = manhattanDistance(actor.position, opponent.position)
+  const lowHp = actor.hp <= Math.ceil(actor.statBlock.hpMax * 0.25)
+  const canSpell =
+    actor.mana >= SPELL1_MANA_COST && actor.cooldowns.spell1 === 0 && dist <= SPELL1_RANGE
+  if (lowHp && dist <= 1) return 'defend'
+  if (canSpell) return 'spell1'
+  if (dist <= 1) return 'attack'
+  if (dist > 1) return 'move'
+  return 'wait'
+}
+
+function actionPriority(action: ActionTypeKey) {
+  switch (action) {
+    case 'spell1':
+      return 5
+    case 'attack':
+      return 4
+    case 'move':
+      return 3
+    case 'defend':
+      return 2
+    default:
+      return 1
+  }
+}
+
+function resolveActions(
+  entries: Array<{ actor: RuntimeCombatant; target: RuntimeCombatant; action: ActionTypeKey }>,
+) {
+  const log: string[] = []
+  for (const { actor, target, action } of entries) {
+    switch (action) {
+      case 'spell1': {
+        const dist = manhattanDistance(actor.position, target.position)
+        if (actor.mana < SPELL1_MANA_COST || actor.cooldowns.spell1 > 0 || dist > SPELL1_RANGE) {
+          log.push(`${actor.name} tried to cast a spell but failed.`)
+          break
+        }
+        const rawDamage = actor.statBlock.int * 2
+        const applied = target.defending ? Math.ceil(rawDamage * 0.5) : rawDamage
+        target.hp = Math.max(0, target.hp - applied)
+        actor.mana = Math.max(0, actor.mana - SPELL1_MANA_COST)
+        actor.cooldowns.spell1 = SPELL1_COOLDOWN
+        log.push(
+          `${actor.name} cast Spell 1 on ${target.name} for ${applied} damage (HP ${target.hp}).`,
+        )
+        break
+      }
+      case 'attack': {
+        const dist = manhattanDistance(actor.position, target.position)
+        if (dist > 1) {
+          log.push(`${actor.name} tried to attack but the target is out of range.`)
+          break
+        }
+        const base = Math.ceil(actor.statBlock.str * 1.5)
+        const variance = randomInt(-2, 2)
+        const rawDamage = Math.max(1, base + variance)
+        const applied = target.defending ? Math.ceil(rawDamage * 0.5) : rawDamage
+        target.hp = Math.max(0, target.hp - applied)
+        log.push(`${actor.name} attacked ${target.name} for ${applied} damage (HP ${target.hp}).`)
+        break
+      }
+      case 'move': {
+        const next = stepTowards(actor.position, target.position)
+        if (next.x === actor.position.x && next.y === actor.position.y) {
+          log.push(`${actor.name} stayed put.`)
+          break
+        }
+        actor.position = next
+        log.push(`${actor.name} moved to (${next.x + 1}, ${next.y + 1}).`)
+        break
+      }
+      case 'defend': {
+        actor.defending = true
+        log.push(`${actor.name} is defending.`)
+        break
+      }
+      default: {
+        log.push(`${actor.name} waited.`)
+      }
+    }
+  }
+  return log
+}
+
+function simulateCombat(
+  playerTemplate: CombatantTemplate,
+  enemyTemplate: CombatantTemplate,
+): CombatSimulationResult {
+  const player: RuntimeCombatant = {
+    ...playerTemplate,
+    position: { ...playerTemplate.position },
+    hp: playerTemplate.statBlock.hpMax,
+    mana: playerTemplate.statBlock.manaMax,
+    cooldowns: { spell1: 0 },
+    defending: false,
+  }
+  const enemy: RuntimeCombatant = {
+    ...enemyTemplate,
+    position: { ...enemyTemplate.position },
+    hp: enemyTemplate.statBlock.hpMax,
+    mana: enemyTemplate.statBlock.manaMax,
+    cooldowns: { spell1: 0 },
+    defending: false,
+  }
+
+  const rounds: SimulationRoundLog[] = []
+  const maxRounds = 15
+  for (let round = 1; round <= maxRounds; round++) {
+    if (player.hp <= 0 || enemy.hp <= 0) break
+
+    const planned = [
+      { actor: player, target: enemy, action: planAction(player, enemy) },
+      { actor: enemy, target: player, action: planAction(enemy, player) },
+    ]
+    planned.sort((a, b) => {
+      const priorityDiff = actionPriority(b.action) - actionPriority(a.action)
+      if (priorityDiff !== 0) return priorityDiff
+      const speedDiff = b.actor.statBlock.spd - a.actor.statBlock.spd
+      if (speedDiff !== 0) return speedDiff
+      return a.actor.id === 'player' ? -1 : 1
+    })
+
+    const roundLog = resolveActions(planned)
+    rounds.push({ round, log: roundLog })
+
+    player.cooldowns.spell1 = Math.max(0, player.cooldowns.spell1 - 1)
+    enemy.cooldowns.spell1 = Math.max(0, enemy.cooldowns.spell1 - 1)
+    player.defending = false
+    enemy.defending = false
+
+    if (player.hp <= 0 || enemy.hp <= 0) break
+  }
+
+  let winner: 'player' | 'enemy'
+  if (enemy.hp <= 0 && player.hp > 0) winner = 'player'
+  else if (player.hp <= 0 && enemy.hp > 0) winner = 'enemy'
+  else winner = player.hp >= enemy.hp ? 'player' : 'enemy'
+
+  return {
+    winner,
+    totalRounds: rounds.length,
+    rounds,
+    player: { hp: player.hp, mana: player.mana, position: player.position },
+    enemy: { hp: enemy.hp, mana: enemy.mana, position: enemy.position },
+  }
+}
+
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok' })
 })
@@ -573,6 +864,7 @@ async function loadSpellState(characterId: bigint) {
             slug: true,
             description: true,
             cooldown: true,
+            slotCode: true,
           },
         },
       },
@@ -606,6 +898,311 @@ async function loadSpellState(characterId: bigint) {
 
   return { slots, learned }
 }
+
+app.post('/api/combat/random', authRequired, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = req.userId!
+    const rawCharacterId = Number(req.body?.characterId)
+    if (!Number.isInteger(rawCharacterId) || rawCharacterId <= 0)
+      return res.status(400).json({ error: 'Invalid character id' })
+
+    const character = await prisma.character.findFirst({
+      where: { id: BigInt(rawCharacterId), userId: BigInt(userId), isNpc: false },
+      select: {
+        id: true,
+        name: true,
+        level: true,
+        attributes: {
+          select: {
+            value: true,
+            attribute: { select: { name: true } },
+          },
+        },
+      },
+    })
+    if (!character) return res.status(404).json({ error: 'Character not found' })
+
+    const existing = await prisma.combatParticipant.findFirst({
+      where: {
+        entityId: character.id,
+        isAi: false,
+        combat: { status: { in: ['pending', 'active'] } },
+      },
+      select: { combatId: true },
+    })
+    if (existing)
+      return res.status(200).json({ combatId: Number(existing.combatId), status: 'existing' })
+
+    const attrLookup = attributesToLookup(character.attributes as CharacterAttributeRecord[])
+    const playerStats = buildStatBlock(attrLookup, character.level)
+    const playerTemplate: CombatantTemplate = {
+      id: 'player',
+      name: character.name,
+      team: 1,
+      isAi: false,
+      level: character.level,
+      statBlock: playerStats,
+      position: { x: 1, y: Math.floor(COMBAT_BOARD_HEIGHT / 2) },
+    }
+
+    const monsters = await prisma.monster.findMany({
+      select: { id: true, name: true, rarity: true, description: true },
+    })
+    const monster = monsters.length ? monsters[randomInt(0, monsters.length - 1)] : null
+    const enemyName = monster?.name ?? 'Training Dummy'
+    const enemyLevel = Math.max(1, character.level + randomInt(-1, 2))
+    const enemyAttrs: AttributeLookup = {
+      strength: 10 + enemyLevel * 2 + randomInt(0, 4),
+      agility: 10 + enemyLevel * 2 + randomInt(0, 4),
+      intelligence: 8 + enemyLevel * 2 + randomInt(0, 4),
+      speed: 8 + enemyLevel * 2 + randomInt(0, 3),
+      health: 110 + enemyLevel * 8 + randomInt(0, 25),
+      mana: 55 + enemyLevel * 4 + randomInt(0, 15),
+    }
+    const enemyStats = buildStatBlock(enemyAttrs, enemyLevel)
+    const enemyTemplate: CombatantTemplate = {
+      id: 'enemy',
+      name: enemyName,
+      team: 2,
+      isAi: true,
+      level: enemyLevel,
+      statBlock: enemyStats,
+      position: { x: COMBAT_BOARD_WIDTH - 2, y: Math.floor(COMBAT_BOARD_HEIGHT / 2) },
+    }
+
+    const playerInitial = {
+      hp: playerStats.hpMax,
+      mana: playerStats.manaMax,
+      position: clonePosition(playerTemplate.position),
+    }
+    const enemyInitial = {
+      hp: enemyStats.hpMax,
+      mana: enemyStats.manaMax,
+      position: clonePosition(enemyTemplate.position),
+    }
+
+    const simulation = simulateCombat(
+      { ...playerTemplate, position: clonePosition(playerTemplate.position) },
+      { ...enemyTemplate, position: clonePosition(enemyTemplate.position) },
+    )
+
+    const originMeta = {
+      source: 'world-random',
+      monsterId: monster ? Number(monster.id) : null,
+      monsterName: enemyName,
+      monsterRarity: monster?.rarity ?? 'common',
+      monsterDescription: monster?.description ?? null,
+      playerCharacterId: Number(character.id),
+      playerCharacterName: character.name,
+    }
+
+    const now = new Date()
+    const actionDefs = {
+      attack: ACTION_LIBRARY.attack,
+      spell1: ACTION_LIBRARY.spell1,
+      move: ACTION_LIBRARY.move,
+      defend: ACTION_LIBRARY.defend,
+      wait: ACTION_LIBRARY.wait,
+    }
+
+    const { combatId } = await prisma.$transaction(async (tx) => {
+      const combat = await tx.combat.create({
+        data: {
+          status: 'finished',
+          boardWidth: COMBAT_BOARD_WIDTH,
+          boardHeight: COMBAT_BOARD_HEIGHT,
+          currentRound: Math.max(1, simulation.totalRounds || 1),
+          currentTurnIndex: 0,
+          originType: 'pve',
+          originMeta,
+          startedAt: now,
+          endedAt: now,
+        },
+      })
+
+      await tx.combatTeam.createMany({
+        data: [
+          { combatId: combat.id, team: 1 },
+          { combatId: combat.id, team: 2 },
+        ],
+      })
+
+      await tx.combatParticipant.create({
+        data: {
+          combatId: combat.id,
+          team: 1,
+          entityId: character.id,
+          name: character.name,
+          isAi: false,
+          tileX: simulation.player.position.x,
+          tileY: simulation.player.position.y,
+          hpCurrent: Math.max(0, Math.round(simulation.player.hp)),
+          initiative: playerStats.spd,
+          snapshotJson: {
+            kind: 'player',
+            level: playerTemplate.level,
+            stats: playerStats,
+            actions: actionDefs,
+            initial: playerInitial,
+            current: {
+              hp: Math.max(0, Math.round(simulation.player.hp)),
+              mana: Math.max(0, Math.round(simulation.player.mana)),
+              position: clonePosition(simulation.player.position),
+            },
+          },
+        },
+      })
+
+      await tx.combatParticipant.create({
+        data: {
+          combatId: combat.id,
+          team: 2,
+          entityId: monster ? monster.id : BigInt(0),
+          name: enemyName,
+          isAi: true,
+          tileX: simulation.enemy.position.x,
+          tileY: simulation.enemy.position.y,
+          hpCurrent: Math.max(0, Math.round(simulation.enemy.hp)),
+          initiative: enemyStats.spd,
+          snapshotJson: {
+            kind: 'enemy',
+            level: enemyTemplate.level,
+            stats: enemyStats,
+            actions: actionDefs,
+            initial: enemyInitial,
+            current: {
+              hp: Math.max(0, Math.round(simulation.enemy.hp)),
+              mana: Math.max(0, Math.round(simulation.enemy.mana)),
+              position: clonePosition(simulation.enemy.position),
+            },
+            monster: monster
+              ? {
+                  id: Number(monster.id),
+                  name: monster.name,
+                  rarity: monster.rarity,
+                  description: monster.description,
+                }
+              : null,
+          },
+        },
+      })
+
+      await tx.combatResult.create({
+        data: {
+          combatId: combat.id,
+          winningTeam: simulation.winner === 'player' ? 1 : 2,
+          summaryJson: {
+            winner: simulation.winner,
+            totalRounds: simulation.totalRounds,
+            rounds: simulation.rounds,
+            enemy: {
+              name: enemyName,
+              rarity: monster?.rarity ?? 'common',
+            },
+          },
+        },
+      })
+
+      return { combatId: combat.id }
+    })
+
+    return res.status(201).json({
+      combatId: Number(combatId),
+      status: 'finished',
+      winner: simulation.winner,
+      monster: {
+        id: monster ? Number(monster.id) : null,
+        name: enemyName,
+        rarity: monster?.rarity ?? 'common',
+      },
+    })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.get('/api/combat/:id', authRequired, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = req.userId!
+    const combatIdNumber = Number(req.params.id)
+    if (!Number.isInteger(combatIdNumber) || combatIdNumber <= 0)
+      return res.status(400).json({ error: 'Invalid combat id' })
+
+    const ownedCharacters = await prisma.character.findMany({
+      where: { userId: BigInt(userId), isNpc: false },
+      select: { id: true },
+    })
+    const ownedIds = ownedCharacters.map((item) => item.id)
+    if (!ownedIds.length) return res.status(404).json({ error: 'No characters found' })
+
+    const combat = await prisma.combat.findFirst({
+      where: {
+        id: BigInt(combatIdNumber),
+        participants: { some: { entityId: { in: ownedIds }, isAi: false } },
+      },
+      include: {
+        participants: true,
+        result: true,
+      },
+    })
+    if (!combat) return res.status(404).json({ error: 'Combat not found' })
+
+    const participants = combat.participants
+      .map((participant) => {
+        const snapshot = (participant.snapshotJson ?? {}) as Record<string, any>
+        const current = snapshot?.current ?? {}
+        const initial = snapshot?.initial ?? null
+        return {
+          id: Number(participant.id),
+          name: participant.name,
+          team: participant.team,
+          isAi: participant.isAi,
+          position: { x: participant.tileX, y: participant.tileY },
+          hp: participant.hpCurrent,
+          stats: snapshot?.stats ?? null,
+          current: {
+            hp: typeof current?.hp === 'number' ? current.hp : participant.hpCurrent,
+            mana: typeof current?.mana === 'number' ? current.mana : null,
+            position:
+              current?.position &&
+              typeof current.position?.x === 'number' &&
+              typeof current.position?.y === 'number'
+                ? current.position
+                : { x: participant.tileX, y: participant.tileY },
+          },
+          initial,
+          actions: snapshot?.actions ?? null,
+          meta: snapshot?.monster ?? null,
+        }
+      })
+      .sort((a, b) => a.team - b.team || a.id - b.id)
+
+    const playerTeam = participants.find((entry) => !entry.isAi)?.team ?? null
+
+    return res.json({
+      id: Number(combat.id),
+      status: combat.status,
+      board: { width: combat.boardWidth, height: combat.boardHeight },
+      currentRound: combat.currentRound,
+      currentTurnIndex: combat.currentTurnIndex,
+      startedAt: combat.startedAt,
+      endedAt: combat.endedAt,
+      originMeta: (combat.originMeta ?? null) as Record<string, unknown> | null,
+      participants,
+      playerTeam,
+      result: combat.result
+        ? {
+            winningTeam: combat.result.winningTeam,
+            summary: combat.result.summaryJson ?? null,
+          }
+        : null,
+    })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
 
 app.get('/api/social/players', authRequired, async (req: AuthedRequest, res: Response) => {
   try {

@@ -1,8 +1,9 @@
 import { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 
 export function useRequireGameSession() {
   const navigate = useNavigate()
+  const location = useLocation()
 
   useEffect(() => {
     const token = localStorage.getItem('token')
@@ -12,6 +13,14 @@ export function useRequireGameSession() {
     }
 
     const active = localStorage.getItem('activeCharacter')
-    if (!active) navigate('/characters')
-  }, [navigate])
+    if (!active) {
+      navigate('/characters')
+      return
+    }
+
+    const combatId = localStorage.getItem('activeCombatId')
+    if (combatId && !location.pathname.startsWith('/combat')) {
+      navigate(`/combat/${combatId}`)
+    }
+  }, [navigate, location.pathname])
 }
