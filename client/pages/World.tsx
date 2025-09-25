@@ -53,7 +53,7 @@ export default function WorldPage() {
       })
 
       const payload = await res.json().catch(() => null)
-      if (!res.ok || !payload || typeof payload.combatId !== 'number') {
+      if (!res.ok || !payload) {
         const message =
           payload && typeof payload.error === 'string'
             ? payload.error
@@ -61,8 +61,14 @@ export default function WorldPage() {
         throw new Error(message)
       }
 
-      localStorage.setItem('activeCombatId', String(payload.combatId))
-      navigate(`/combat/${payload.combatId}`)
+      let combatId: number | null = null
+      if (typeof payload.combatId === 'number') combatId = payload.combatId
+      else if (typeof payload.id === 'number') combatId = payload.id
+
+      if (!combatId) throw new Error('Combat could not be created.')
+
+      localStorage.setItem('activeCombatId', String(combatId))
+      navigate(`/combat/${combatId}`)
     } catch (err: any) {
       setError(err?.message ?? 'Combat could not be created.')
     } finally {
@@ -85,16 +91,16 @@ export default function WorldPage() {
           <div style={ctaCard}>
             <h2 style={{ margin: '0 0 8px' }}>PvE encounter</h2>
             <p style={description}>
-              Generate a random duel on an 8×8 grid. You face one enemy, each round select a single action (move,
-              attack, Spell 1, defend, wait).
+              Generate a random duel on an 8x8 grid. One player-controlled hero faces a single enemy in alternating
+              turns.
             </p>
             <ul style={ruleList}>
-              <li>Attack deals ceil(1.5×STR) damage with slight variance.</li>
-              <li>Spell 1: range 3, damage 2×INT, costs 5 mana, cooldown 2 rounds.</li>
-              <li>Defend halves incoming damage until the end of the round.</li>
-              <li>Victory when the opponent reaches 0 HP; defeat if you drop to 0 HP.</li>
+              <li>Move like a chess king - one tile in any direction.</li>
+              <li>Attack adjacent foes for ceil(1.5x STR) damage with a small variance.</li>
+              <li>Wait to skip your turn while enemy advances.</li>
+              <li>Victory: enemy HP reaches 0. Defeat: your HP reaches 0.</li>
             </ul>
-            <p style={description}>AI prioritises spells, then melee, moves closer, defends when low, otherwise waits.</p>
+            <p style={description}>Enemy will strike when in range, otherwise it moves closer before waiting.</p>
             {error && <p style={errorText}>{error}</p>}
             <button
               type="button"
