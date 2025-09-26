@@ -102,17 +102,130 @@ async function main() {
   }
 
   // --- 3) Spells ---
-  const spellNames = [
-    'Passive: Double Attack',
-    'Passive: Double Cast',
-    'Fireball',
-    'Cleave',
-    'Shiv',
-    'Ice Lance',
-    'Arcane Bolt',
-    'Heal',
-    'Shield',
-    'Poison Dagger',
+  const spellsSeed = [
+    {
+      name: 'Passive: Double Attack',
+      description: null,
+      slotCode: 'passive',
+      cooldown: 0,
+      castType: 'self',
+      target: 'self',
+      range: 0,
+      areaRange: 0,
+      damage: 0,
+      manaCost: 0,
+    },
+    {
+      name: 'Passive: Double Cast',
+      description: null,
+      slotCode: 'passive',
+      cooldown: 0,
+      castType: 'self',
+      target: 'self',
+      range: 0,
+      areaRange: 0,
+      damage: 0,
+      manaCost: 0,
+    },
+    {
+      name: 'Fireball',
+      description: 'Launches a fiery orb at the enemy.',
+      slotCode: 'spell',
+      cooldown: 2,
+      castType: 'point_click',
+      target: 'enemy',
+      range: 3,
+      areaRange: 0,
+      damage: 6,
+      manaCost: 5,
+      effects: [
+        { code: 'ignite', durationRounds: 2, magnitude: 1 },
+      ],
+    },
+    {
+      name: 'Cleave',
+      description: null,
+      slotCode: 'spell',
+      cooldown: 1,
+      castType: 'point_click',
+      target: 'enemy',
+      range: 1,
+      areaRange: 1,
+      damage: 4,
+      manaCost: 0,
+    },
+    {
+      name: 'Shiv',
+      description: null,
+      slotCode: 'spell',
+      cooldown: 0,
+      castType: 'point_click',
+      target: 'enemy',
+      range: 1,
+      areaRange: 0,
+      damage: 3,
+      manaCost: 0,
+    },
+    {
+      name: 'Ice Lance',
+      description: null,
+      slotCode: 'spell',
+      cooldown: 1,
+      castType: 'point_click',
+      target: 'enemy',
+      range: 3,
+      areaRange: 0,
+      damage: 4,
+      manaCost: 4,
+    },
+    {
+      name: 'Arcane Bolt',
+      description: null,
+      slotCode: 'spell',
+      cooldown: 0,
+      castType: 'point_click',
+      target: 'enemy',
+      range: 4,
+      areaRange: 0,
+      damage: 5,
+      manaCost: 3,
+    },
+    {
+      name: 'Heal',
+      description: null,
+      slotCode: 'spell',
+      cooldown: 2,
+      castType: 'point_click',
+      target: 'ally',
+      range: 3,
+      areaRange: 0,
+      damage: 0,
+      manaCost: 6,
+    },
+    {
+      name: 'Shield',
+      description: null,
+      slotCode: 'spell',
+      cooldown: 2,
+      castType: 'point_click',
+      target: 'ally',
+      range: 1,
+      areaRange: 0,
+      damage: 0,
+      manaCost: 4,
+    },
+    {
+      name: 'Poison Dagger',
+      description: null,
+      slotCode: 'spell',
+      cooldown: 1,
+      castType: 'point_click',
+      target: 'enemy',
+      range: 1,
+      areaRange: 0,
+      damage: 3,
+      manaCost: 0,
+    },
   ];
   const slugify = (s) => s.toLowerCase().replace(/\s+/g, '-');
   const inferSpellSlotCode = (name) => {
@@ -121,33 +234,85 @@ async function main() {
     if (lower.includes('ultimate')) return 'ultimate';
     return 'spell';
   };
-  await Promise.all(
-    spellNames.map((name) => {
-      const slotCode = inferSpellSlotCode(name);
-      return db.spell.upsert({
-        where: { name },
-        update: { slotCode },
-        create: { name, slug: slugify(name), description: null, cooldown: 0, slotCode },
-      });
-    })
-  );
+
+  const spellsByName = {};
+  for (const spell of spellsSeed) {
+    const slotCodeRaw = (spell.slotCode ?? inferSpellSlotCode(spell.name)).toLowerCase();
+    const slotCode = spellSlotByCode[slotCodeRaw] ? slotCodeRaw : 'spell';
+    const payload = {
+      name: spell.name,
+      slug: slugify(spell.name),
+      description: spell.description ?? null,
+      cooldown: spell.cooldown ?? 0,
+      slotCode,
+      castType: spell.castType ?? 'point_click',
+      target: spell.target ?? 'enemy',
+      range: spell.range ?? 1,
+      areaRange: spell.areaRange ?? 0,
+      damage: spell.damage ?? 0,
+      manaCost: spell.manaCost ?? 0,
+    };
+    const record = await db.spell.upsert({
+      where: { name: spell.name },
+      update: payload,
+      create: payload,
+    });
+    spellsByName[spell.name] = record;
+  }
 
   // --- 4) Effects ---
   const effectsData = [
-    { code: 'double_strike', name: 'Double Strike', stacking: 'refresh', effectType: 'physical' },
-    { code: 'double_cast', name: 'Double Cast', stacking: 'refresh', effectType: 'magic' },
-    { code: 'hot', name: 'Heal over Time', stacking: 'stack', effectType: 'magic' },
-    { code: 'dot', name: 'Damage over Time', stacking: 'stack', effectType: 'poison' },
+    { code: 'double_strike', name: 'Double Strike', stacking: 'refresh', effectType: 'physical', description: null, defaultDurationRounds: null },
+    { code: 'double_cast', name: 'Double Cast', stacking: 'refresh', effectType: 'magic', description: null, defaultDurationRounds: null },
+    { code: 'hot', name: 'Heal over Time', stacking: 'stack', effectType: 'magic', description: null, defaultDurationRounds: null },
+    { code: 'dot', name: 'Damage over Time', stacking: 'stack', effectType: 'poison', description: null, defaultDurationRounds: null },
+    { code: 'ignite', name: 'Ignite', stacking: 'refresh', effectType: 'magic', description: 'Burns the target for a short duration.', defaultDurationRounds: 2 },
   ];
-  await Promise.all(
+  const effects = await Promise.all(
     effectsData.map((e) =>
       db.effect.upsert({
         where: { code: e.code },
-        update: {},
-        create: { code: e.code, name: e.name, description: null, stacking: e.stacking, effectType: e.effectType },
+        update: {
+          name: e.name,
+          description: e.description ?? null,
+          stacking: e.stacking,
+          effectType: e.effectType,
+          defaultDurationRounds: e.defaultDurationRounds ?? null,
+          dataJson: null,
+        },
+        create: {
+          code: e.code,
+          name: e.name,
+          description: e.description ?? null,
+          stacking: e.stacking,
+          effectType: e.effectType,
+          defaultDurationRounds: e.defaultDurationRounds ?? null,
+          dataJson: null,
+        },
       })
     )
   );
+  const effectByCode = Object.fromEntries(effects.map((effect) => [effect.code, effect]));
+
+  for (const spell of spellsSeed) {
+    const record = spellsByName[spell.name];
+    if (!record) continue;
+    await db.spellEffect.deleteMany({ where: { spellId: record.id } });
+    if (!spell.effects || spell.effects.length === 0) continue;
+    for (const effectSeed of spell.effects) {
+      const effect = effectByCode[effectSeed.code];
+      if (!effect) continue;
+      await db.spellEffect.create({
+        data: {
+          spellId: record.id,
+          effectId: effect.id,
+          durationRounds: effectSeed.durationRounds ?? effect.defaultDurationRounds ?? 0,
+          magnitude: effectSeed.magnitude ?? 0,
+          dataJson: effectSeed.dataJson ?? null,
+        },
+      });
+    }
+  }
 
   // --- 5) Items ---
   const itemsData = [

@@ -97,6 +97,18 @@ function toSpellDto(spell) {
         description: spell.description,
         cooldown: spell.cooldown,
         slotCode: spell.slotCode,
+        castType: spell.castType,
+        target: spell.target,
+        range: spell.range,
+        areaRange: spell.areaRange,
+        damage: spell.damage,
+        manaCost: spell.manaCost,
+        effects: spell.effects?.map((entry) => ({
+            effectId: Number(entry.effectId),
+            effectCode: entry.effect?.code ?? 'unknown',
+            durationRounds: entry.durationRounds,
+            magnitude: entry.magnitude,
+        })) ?? [],
     };
 }
 class ShopError extends Error {
@@ -130,6 +142,8 @@ function toCharacterDto(character) {
 }
 const COMBAT_BOARD_WIDTH = 8;
 const COMBAT_BOARD_HEIGHT = 8;
+const GOLD_REWARD_MIN = 12;
+const GOLD_REWARD_MAX = 28;
 const ACTION_LIBRARY = {
     move: {
         key: 'move',
@@ -139,7 +153,7 @@ const ACTION_LIBRARY = {
     attack: {
         key: 'attack',
         label: 'Attack',
-        description: 'Adjacent melee attack dealing ceil(1.5×STR) ± rng(0..2).',
+        description: 'Adjacent melee attack dealing ceil(1.5Ă—STR) Â± rng(0..2).',
     },
     wait: {
         key: 'wait',
@@ -245,13 +259,161 @@ function appendRoundLog(meta, message) {
 function computeAvailableActions(playerSnapshot, enemySnapshot, enemyParticipantId) {
     const movePositions = getAdjacentTiles(playerSnapshot.current.position).filter((tile) => !(tile.x === enemySnapshot.current.position.x && tile.y === enemySnapshot.current.position.y));
     const canAttack = chebyshevDistance(playerSnapshot.current.position, enemySnapshot.current.position) <= 1;
+    const availableSpells = (playerSnapshot.spells ?? []).map((spell) => ({
+        id: spell.id,
+        name: spell.name,
+        castType: spell.castType,
+        target: spell.target,
+        range: spell.range,
+        areaRange: spell.areaRange,
+        manaCost: spell.manaCost,
+        damage: spell.damage,
+        effects: spell.effects,
+    }));
     return {
         canMove: movePositions.length > 0,
         movePositions,
         canAttack,
         attackTargets: canAttack ? [Number(enemyParticipantId)] : [],
         canWait: true,
+        spells: availableSpells,
     };
+}
+async function grantCombatRewards(tx, characterId, meta) {
+    if (meta.rewardGranted)
+        return meta.reward ?? { gold: 0, itemTemplateId: null, itemName: null };
+    const reward = { gold: 0, itemTemplateId: null, itemName: null };
+    const goldReward = randomInt(GOLD_REWARD_MIN, GOLD_REWARD_MAX);
+    const coinTemplate = await tx.itemTemplate.findFirst({
+        where: { slug: 'gold-coin' },
+        select: { id: true },
+    });
+    if (coinTemplate && goldReward > 0) {
+        const existingCoins = await tx.characterInventory.findFirst({
+            where: { ownerCharacterId: characterId, templateId: coinTemplate.id },
+            select: { id: true, amount: true },
+        });
+        if (existingCoins) {
+            const updated = Number(existingCoins.amount ?? 0) + goldReward;
+            await tx.characterInventory.update({
+                where: { id: existingCoins.id },
+                data: { amount: updated },
+            });
+        }
+        else {
+            await tx.characterInventory.create({
+                data: {
+                    ownerCharacterId: characterId,
+                    templateId: coinTemplate.id,
+                    amount: goldReward,
+                },
+            });
+        }
+        reward.gold = goldReward;
+    }
+    const lootPool = await tx.itemTemplate.findMany({
+        where: { inShop: true, slug: { not: 'gold-coin' } },
+        select: { id: true, name: true },
+    });
+    if (lootPool.length) {
+        const chosen = lootPool[randomInt(0, lootPool.length - 1)];
+        try {
+            await tx.characterInventory.create({
+                data: {
+                    ownerCharacterId: characterId,
+                    templateId: chosen.id,
+                    amount: 1,
+                },
+            });
+            reward.itemTemplateId = Number(chosen.id);
+            reward.itemName = chosen.name;
+        }
+        catch (err) {
+            console.error('Failed to grant item reward', err);
+        }
+    }
+    meta.rewardGranted = true;
+    meta.reward = reward;
+    const rewardParts = [];
+    if (reward.gold > 0)
+        rewardParts.push(`+${reward.gold} gold`);
+    if (reward.itemName)
+        rewardParts.push(reward.itemName);
+    if (rewardParts.length)
+        appendRoundLog(meta, `Rewards: ${rewardParts.join(' and ')}.`);
+    return reward;
+}
+async function processStartOfTurnEffects(combatId, actor, meta, participantLookup) {
+    let actorDied = false;
+    await prisma.$transaction(async (tx) => {
+        const effects = await tx.combatEffect.findMany({
+            where: { combatId, participantId: actor.record.id },
+            include: { effect: { select: { code: true } } },
+            orderBy: { id: 'asc' },
+        });
+        for (const effectRecord of effects) {
+            const effectCode = effectRecord.effect?.code ?? 'unknown';
+            const data = (effectRecord.dataJson ?? {});
+            const durationFallback = Number.isFinite(Number(data.durationRounds))
+                ? Number(data.durationRounds)
+                : Number.isFinite(Number(data.duration))
+                    ? Number(data.duration)
+                    : Number.isFinite(Number(effectRecord.expiresRound))
+                        ? Math.max(0, Number(effectRecord.expiresRound) - meta.round)
+                        : 0;
+            let remaining = Number.isFinite(Number(data.remainingRounds))
+                ? Number(data.remainingRounds)
+                : durationFallback;
+            if (remaining <= 0) {
+                await tx.combatEffect.delete({ where: { id: effectRecord.id } });
+                continue;
+            }
+            const sourceParticipantId = Number(data.sourceParticipantId ??
+                (effectRecord.sourceParticipantId ? Number(effectRecord.sourceParticipantId) : 0));
+            const sourceName = participantLookup.get(sourceParticipantId)?.record.name ?? 'Unknown caster';
+            switch (effectCode) {
+                case 'ignite': {
+                    const damage = Number(Number.isFinite(Number(data.damagePerTick))
+                        ? Number(data.damagePerTick)
+                        : Number(data.intelligence ?? data.int ?? 0));
+                    if (damage > 0) {
+                        actor.snapshot.current.hp = Math.max(0, actor.snapshot.current.hp - damage);
+                        const sourceLabel = sourceParticipantId ? `${sourceName}'s ` : '';
+                        appendRoundLog(meta, `${actor.record.name} suffers ${damage} damage from ${sourceLabel}Ignite.`);
+                        actorDied = actorDied || actor.snapshot.current.hp <= 0;
+                    }
+                    remaining -= 1;
+                    if (remaining <= 0 || actor.snapshot.current.hp <= 0) {
+                        await tx.combatEffect.delete({ where: { id: effectRecord.id } });
+                        if (remaining <= 0)
+                            appendRoundLog(meta, `${actor.record.name}'s Ignite effect fades.`);
+                    }
+                    else {
+                        const nextExpires = meta.round + remaining;
+                        const nextData = {
+                            ...data,
+                            remainingRounds: remaining,
+                            sourceParticipantId,
+                            damagePerTick: damage,
+                        };
+                        await tx.combatEffect.update({
+                            where: { id: effectRecord.id },
+                            data: { dataJson: nextData, expiresRound: nextExpires },
+                        });
+                    }
+                    break;
+                }
+                default: {
+                    await tx.combatEffect.delete({ where: { id: effectRecord.id } });
+                    appendRoundLog(meta, `${actor.record.name} is no longer affected by ${effectCode}.`);
+                }
+            }
+            if (actor.snapshot.current.hp <= 0) {
+                actorDied = true;
+            }
+        }
+    });
+    return { actorDied };
 }
 async function loadCharacterCombatSpells(characterId) {
     const loadouts = await prisma.characterSpellbookLoadout.findMany({
@@ -266,6 +428,20 @@ async function loadCharacterCombatSpells(characterId) {
                     description: true,
                     cooldown: true,
                     slotCode: true,
+                    castType: true,
+                    target: true,
+                    range: true,
+                    areaRange: true,
+                    damage: true,
+                    manaCost: true,
+                    effects: {
+                        select: {
+                            effectId: true,
+                            durationRounds: true,
+                            magnitude: true,
+                            effect: { select: { code: true } },
+                        },
+                    },
                 },
             },
         },
@@ -280,14 +456,7 @@ async function loadCharacterCombatSpells(characterId) {
         if (seen.has(id))
             continue;
         seen.add(id);
-        spells.push({
-            id,
-            name: spell.name,
-            slug: spell.slug,
-            description: spell.description,
-            cooldown: spell.cooldown,
-            slotCode: spell.slotCode,
-        });
+        spells.push(toSpellDto(spell));
     }
     return spells;
 }
@@ -344,14 +513,46 @@ function parseParticipantSnapshot(participant) {
     };
     const spells = Array.isArray(snapshot.spells)
         ? snapshot.spells
-            .map((spell) => ({
-            id: Number(spell?.id ?? 0),
-            name: String(spell?.name ?? 'Unknown'),
-            slug: String(spell?.slug ?? 'unknown'),
-            description: spell?.description != null ? String(spell.description) : null,
-            cooldown: Number(spell?.cooldown ?? 0),
-            slotCode: String(spell?.slotCode ?? 'spell'),
-        }))
+            .map((spell) => {
+            const raw = spell;
+            const effects = Array.isArray(raw?.effects)
+                ? raw.effects
+                    .map((effect) => ({
+                    effectId: Number(effect?.effectId ?? effect?.id ?? 0),
+                    effectCode: String(effect?.effectCode ?? effect?.code ?? 'unknown').toLowerCase(),
+                    durationRounds: Number(effect?.durationRounds ?? effect?.duration ?? 0),
+                    magnitude: Number(effect?.magnitude ?? 0),
+                }))
+                    .filter((entry) => Number.isFinite(entry.effectId) && entry.effectId > 0)
+                : [];
+            const castTypeRaw = String(raw?.castType ?? raw?.cast_type ?? 'point_click').toLowerCase();
+            const targetRaw = String(raw?.target ?? 'enemy').toLowerCase();
+            const rangeRaw = Number(raw?.range ?? raw?.spellRange ?? 1);
+            const areaRangeRaw = Number(raw?.areaRange ?? raw?.area_range ?? 0);
+            const damageRaw = Number(raw?.damage ?? 0);
+            const manaCostRaw = Number(raw?.manaCost ?? raw?.mana_cost ?? 0);
+            const castType = castTypeRaw === 'area' || castTypeRaw === 'self' ? castTypeRaw : 'point_click';
+            const target = targetRaw === 'ally' || targetRaw === 'ground' || targetRaw === 'self' ? targetRaw : 'enemy';
+            const range = Number.isFinite(rangeRaw) ? rangeRaw : 1;
+            const areaRange = Number.isFinite(areaRangeRaw) ? areaRangeRaw : 0;
+            const damage = Number.isFinite(damageRaw) ? damageRaw : 0;
+            const manaCost = Number.isFinite(manaCostRaw) ? manaCostRaw : 0;
+            return {
+                id: Number(raw?.id ?? 0),
+                name: String(raw?.name ?? 'Unknown'),
+                slug: String(raw?.slug ?? 'unknown'),
+                description: raw?.description != null ? String(raw.description) : null,
+                cooldown: Number(raw?.cooldown ?? 0),
+                slotCode: String(raw?.slotCode ?? raw?.slot_code ?? 'spell'),
+                castType,
+                target,
+                range,
+                areaRange,
+                damage,
+                manaCost,
+                effects,
+            };
+        })
             .filter((item) => Number.isFinite(item.id) && item.id > 0)
         : [];
     const kind = snapshot.kind === 'enemy' || participant.isAi ? 'enemy' : 'player';
@@ -391,6 +592,20 @@ function parseCombatMeta(combat) {
         }))
         : [{ round, log: [] }];
     rounds.sort((a, b) => a.round - b.round);
+    const rewardRaw = raw?.reward;
+    const reward = rewardRaw && typeof rewardRaw === 'object' && !Array.isArray(rewardRaw)
+        ? {
+            gold: rewardRaw.gold != null && Number.isFinite(Number(rewardRaw.gold))
+                ? Number(rewardRaw.gold)
+                : 0,
+            itemTemplateId: rewardRaw.itemTemplateId != null && Number.isFinite(Number(rewardRaw.itemTemplateId))
+                ? Number(rewardRaw.itemTemplateId)
+                : null,
+            itemName: rewardRaw.itemName != null && rewardRaw.itemName !== ''
+                ? String(rewardRaw.itemName)
+                : null,
+        }
+        : undefined;
     return {
         source: typeof raw?.source === 'string' ? raw.source : 'world-random',
         playerCharacterId: Number(raw?.playerCharacterId ?? 0),
@@ -402,6 +617,8 @@ function parseCombatMeta(combat) {
         round: round > 0 ? round : 1,
         turn,
         rounds,
+        rewardGranted: Boolean(raw?.rewardGranted ?? (reward ? true : false)),
+        reward,
     };
 }
 async function getUserCharacterIds(userId) {
@@ -422,6 +639,7 @@ async function fetchCombatForUser(combatId, userCharacterIds) {
         include: {
             participants: true,
             result: true,
+            effects: { include: { effect: true } },
         },
     });
 }
@@ -458,7 +676,24 @@ function serializeCombat(combat, userCharacterIds) {
         .sort((a, b) => a.team - b.team || a.id - b.id);
     const availableActions = combat.status !== 'finished' && meta.turn === 'player' && playerEntry && enemyEntry
         ? computeAvailableActions(playerEntry.snapshot, enemyEntry.snapshot, enemyEntry.participant.id)
-        : { canMove: false, movePositions: [], canAttack: false, attackTargets: [], canWait: false };
+        : {
+            canMove: false,
+            movePositions: [],
+            canAttack: false,
+            attackTargets: [],
+            canWait: false,
+            spells: playerEntry?.snapshot.spells?.map((spell) => ({
+                id: spell.id,
+                name: spell.name,
+                castType: spell.castType,
+                target: spell.target,
+                range: spell.range,
+                areaRange: spell.areaRange,
+                manaCost: spell.manaCost,
+                damage: spell.damage,
+                effects: spell.effects,
+            })) ?? [],
+        };
     const playerSpells = playerEntry?.snapshot.spells ?? [];
     return {
         id: Number(combat.id),
@@ -480,6 +715,14 @@ function serializeCombat(combat, userCharacterIds) {
             monsterRarity: meta.monsterRarity,
             monsterDescription: meta.monsterDescription,
             playerCharacterName: meta.playerCharacterName,
+            rewardGranted: Boolean(meta.rewardGranted),
+            reward: meta.reward
+                ? {
+                    gold: meta.reward.gold,
+                    itemTemplateId: meta.reward.itemTemplateId,
+                    itemName: meta.reward.itemName,
+                }
+                : null,
         },
         availableActions,
         playerSpells,
@@ -846,6 +1089,20 @@ async function loadSpellState(characterId) {
                         description: true,
                         cooldown: true,
                         slotCode: true,
+                        castType: true,
+                        target: true,
+                        range: true,
+                        areaRange: true,
+                        damage: true,
+                        manaCost: true,
+                        effects: {
+                            select: {
+                                effectId: true,
+                                durationRounds: true,
+                                magnitude: true,
+                                effect: { select: { code: true } },
+                            },
+                        },
                     },
                 },
             },
@@ -864,6 +1121,20 @@ async function loadSpellState(characterId) {
                         description: true,
                         cooldown: true,
                         slotCode: true,
+                        castType: true,
+                        target: true,
+                        range: true,
+                        areaRange: true,
+                        damage: true,
+                        manaCost: true,
+                        effects: {
+                            select: {
+                                effectId: true,
+                                durationRounds: true,
+                                magnitude: true,
+                                effect: { select: { code: true } },
+                            },
+                        },
                     },
                 },
             },
@@ -998,6 +1269,7 @@ app.post('/api/combat/random', authRequired, async (req, res) => {
             round: 1,
             turn: 'player',
             rounds: [{ round: 1, log: [] }],
+            rewardGranted: false,
         };
         const now = new Date();
         const combat = await prisma.$transaction(async (tx) => {
@@ -1049,7 +1321,7 @@ app.post('/api/combat/random', authRequired, async (req, res) => {
             });
             return tx.combat.findUnique({
                 where: { id: created.id },
-                include: { participants: true, result: true },
+                include: { participants: true, result: true, effects: { include: { effect: true } } },
             });
         });
         if (!combat)
@@ -1087,7 +1359,7 @@ app.post('/api/combat/:id/action', authRequired, async (req, res) => {
         if (!Number.isInteger(combatIdNumber) || combatIdNumber <= 0)
             return res.status(400).json({ error: 'Invalid combat id' });
         const actionKey = String(req.body?.action ?? '').toLowerCase();
-        if (actionKey !== 'move' && actionKey !== 'attack' && actionKey !== 'wait')
+        if (actionKey !== 'move' && actionKey !== 'attack' && actionKey !== 'wait' && actionKey !== 'spell')
             return res.status(400).json({ error: 'Unsupported action' });
         const userCharacterIds = await getUserCharacterIds(userId);
         if (!userCharacterIds.length)
@@ -1107,6 +1379,11 @@ app.post('/api/combat/:id/action', authRequired, async (req, res) => {
         const playerSnapshot = parseParticipantSnapshot(playerRecord);
         const enemySnapshot = parseParticipantSnapshot(enemyRecord);
         const available = computeAvailableActions(playerSnapshot, enemySnapshot, enemyRecord.id);
+        const spellsById = new Map((playerSnapshot.spells ?? []).map((spell) => [spell.id, spell]));
+        const participantsLookup = new Map([
+            [Number(playerRecord.id), { record: playerRecord, snapshot: playerSnapshot }],
+            [Number(enemyRecord.id), { record: enemyRecord, snapshot: enemySnapshot }],
+        ]);
         const logPlayerName = playerRecord.name;
         const logEnemyName = enemyRecord.name;
         const clampHp = (value) => Math.max(0, Math.round(value));
@@ -1117,6 +1394,8 @@ app.post('/api/combat/:id/action', authRequired, async (req, res) => {
             defenderSnapshot.current.hp = Math.max(0, defenderSnapshot.current.hp - damage);
             appendRoundLog(meta, `${attackerName} attacked for ${damage} damage (HP ${defenderSnapshot.current.hp}).`);
         };
+        let pendingSpell = null;
+        let performedWait = false;
         if (actionKey === 'move') {
             if (!available.canMove)
                 return res.status(400).json({ error: 'Move not available' });
@@ -1133,10 +1412,64 @@ app.post('/api/combat/:id/action', authRequired, async (req, res) => {
                 return res.status(400).json({ error: 'Enemy not in range to attack' });
             applyAttack(logPlayerName, playerSnapshot, enemySnapshot);
         }
+        else if (actionKey === 'spell') {
+            const spellId = Number(req.body?.spellId);
+            if (!Number.isInteger(spellId) || spellId <= 0)
+                return res.status(400).json({ error: 'Invalid spell id' });
+            const spell = spellsById.get(spellId);
+            if (!spell)
+                return res.status(400).json({ error: 'Spell not available' });
+            const isSpellAvailable = available.spells.some((entry) => entry.id === spell.id);
+            if (!isSpellAvailable)
+                return res.status(400).json({ error: 'Spell cannot be cast right now' });
+            if (spell.slug !== 'fireball' || spell.castType !== 'point_click' || spell.target !== 'enemy') {
+                appendRoundLog(meta, `${logPlayerName} attempts to cast ${spell.name}, but nothing happens.`);
+                performedWait = true;
+            }
+            else {
+                if (playerSnapshot.current.mana < spell.manaCost)
+                    return res.status(400).json({ error: 'Not enough mana' });
+                const targetPayload = req.body?.target ?? {};
+                const targetParticipantId = Number(targetPayload?.participantId);
+                if (!Number.isInteger(targetParticipantId) || targetParticipantId <= 0)
+                    return res.status(400).json({ error: 'Invalid spell target' });
+                const targetEntry = participantsLookup.get(targetParticipantId);
+                if (!targetEntry || !targetEntry.record.isAi)
+                    return res.status(400).json({ error: 'Spell target must be an enemy' });
+                const distance = chebyshevDistance(playerSnapshot.current.position, targetEntry.snapshot.current.position);
+                if (distance > spell.range)
+                    return res.status(400).json({ error: 'Target out of range' });
+                playerSnapshot.current.mana = Math.max(0, playerSnapshot.current.mana - spell.manaCost);
+                const totalDamage = Math.max(0, spell.damage + playerSnapshot.stats.int);
+                targetEntry.snapshot.current.hp = Math.max(0, targetEntry.snapshot.current.hp - totalDamage);
+                appendRoundLog(meta, `${logPlayerName} casts ${spell.name} on ${targetEntry.record.name} for ${totalDamage} damage.`);
+                pendingSpell = {
+                    spell,
+                    target: targetEntry,
+                    effects: [],
+                };
+                if (targetEntry.snapshot.current.hp > 0) {
+                    const igniteEffect = spell.effects.find((effect) => effect.effectCode === 'ignite');
+                    if (igniteEffect && igniteEffect.durationRounds > 0) {
+                        appendRoundLog(meta, `${targetEntry.record.name} is ignited.`);
+                        pendingSpell.effects.push({
+                            effectId: igniteEffect.effectId,
+                            durationRounds: igniteEffect.durationRounds,
+                            data: {
+                                remainingRounds: igniteEffect.durationRounds,
+                                damagePerTick: playerSnapshot.stats.int,
+                                sourceParticipantId: Number(playerRecord.id),
+                            },
+                        });
+                    }
+                }
+            }
+        }
         else {
             if (!available.canWait)
                 return res.status(400).json({ error: 'Wait not available' });
             appendRoundLog(meta, `${logPlayerName} waited.`);
+            performedWait = true;
         }
         let combatStatus = 'active';
         let winningTeam = null;
@@ -1150,42 +1483,59 @@ app.post('/api/combat/:id/action', authRequired, async (req, res) => {
         }
         else {
             meta.turn = 'enemy';
-            const enemyOptions = computeAvailableActions(enemySnapshot, playerSnapshot, playerRecord.id);
-            if (enemyOptions.canAttack) {
-                applyAttack(logEnemyName, enemySnapshot, playerSnapshot);
+            const enemyEffects = await processStartOfTurnEffects(combat.id, { record: enemyRecord, snapshot: enemySnapshot }, meta, participantsLookup);
+            if (enemySnapshot.current.hp <= 0 || enemyEffects.actorDied) {
+                combatStatus = 'finished';
+                winningTeam = playerRecord.team;
+                summaryWinner = 'player';
+                meta.turn = 'finished';
+                appendRoundLog(meta, `${logEnemyName} succumbs to lingering effects.`);
             }
-            else if (enemyOptions.canMove) {
-                const sortedMoves = enemyOptions.movePositions
-                    .slice()
-                    .sort((a, b) => chebyshevDistance(a, playerSnapshot.current.position) -
-                    chebyshevDistance(b, playerSnapshot.current.position));
-                const target = sortedMoves[0] ?? enemyOptions.movePositions[0];
-                if (target) {
-                    enemySnapshot.current.position = clonePosition(target);
-                    appendRoundLog(meta, `${logEnemyName} moved to (${target.x + 1}, ${target.y + 1}).`);
+            else {
+                const enemyOptions = computeAvailableActions(enemySnapshot, playerSnapshot, playerRecord.id);
+                if (enemyOptions.canAttack) {
+                    applyAttack(logEnemyName, enemySnapshot, playerSnapshot);
+                }
+                else if (enemyOptions.canMove) {
+                    const sortedMoves = enemyOptions.movePositions
+                        .slice()
+                        .sort((a, b) => chebyshevDistance(a, playerSnapshot.current.position) -
+                        chebyshevDistance(b, playerSnapshot.current.position));
+                    const target = sortedMoves[0] ?? enemyOptions.movePositions[0];
+                    if (target) {
+                        enemySnapshot.current.position = clonePosition(target);
+                        appendRoundLog(meta, `${logEnemyName} moved to (${target.x + 1}, ${target.y + 1}).`);
+                    }
+                    else {
+                        appendRoundLog(meta, `${logEnemyName} waited.`);
+                    }
                 }
                 else {
                     appendRoundLog(meta, `${logEnemyName} waited.`);
                 }
-            }
-            else {
-                appendRoundLog(meta, `${logEnemyName} waited.`);
-            }
-            if (playerSnapshot.current.hp <= 0) {
-                combatStatus = 'finished';
-                winningTeam = enemyRecord.team;
-                summaryWinner = 'enemy';
-                meta.turn = 'finished';
-                appendRoundLog(meta, `${logEnemyName} wins the duel.`);
-            }
-            else {
-                meta.turn = 'player';
-                meta.round += 1;
+                if (playerSnapshot.current.hp <= 0) {
+                    combatStatus = 'finished';
+                    winningTeam = enemyRecord.team;
+                    summaryWinner = 'enemy';
+                    meta.turn = 'finished';
+                    appendRoundLog(meta, `${logEnemyName} wins the duel.`);
+                }
+                else {
+                    meta.round += 1;
+                    meta.turn = 'player';
+                    if (combatStatus === 'active') {
+                        const playerEffects = await processStartOfTurnEffects(combat.id, { record: playerRecord, snapshot: playerSnapshot }, meta, participantsLookup);
+                        if (playerSnapshot.current.hp <= 0 || playerEffects.actorDied) {
+                            combatStatus = 'finished';
+                            winningTeam = enemyRecord.team;
+                            summaryWinner = 'enemy';
+                            meta.turn = 'finished';
+                            appendRoundLog(meta, `${logPlayerName} collapses from lingering effects.`);
+                        }
+                    }
+                }
             }
         }
-        const maxRoundsStored = 50;
-        if (meta.rounds.length > maxRoundsStored)
-            meta.rounds = meta.rounds.slice(-maxRoundsStored);
         const playerPositionUpdated = clonePosition(playerSnapshot.current.position);
         const enemyPositionUpdated = clonePosition(enemySnapshot.current.position);
         await prisma.$transaction(async (tx) => {
@@ -1231,6 +1581,34 @@ app.post('/api/combat/:id/action', authRequired, async (req, res) => {
                     },
                 },
             });
+            if (pendingSpell && combatStatus === 'active' && pendingSpell.effects.length) {
+                for (const effect of pendingSpell.effects) {
+                    await tx.combatEffect.deleteMany({
+                        where: {
+                            combatId: combat.id,
+                            participantId: pendingSpell.target.record.id,
+                            effectId: BigInt(effect.effectId),
+                        },
+                    });
+                    await tx.combatEffect.create({
+                        data: {
+                            combatId: combat.id,
+                            participantId: pendingSpell.target.record.id,
+                            sourceParticipantId: playerRecord.id,
+                            effectId: BigInt(effect.effectId),
+                            stacks: 1,
+                            expiresRound: meta.round + effect.durationRounds,
+                            dataJson: effect.data,
+                        },
+                    });
+                }
+            }
+            if (combatStatus === 'finished' && summaryWinner === 'player' && meta.rewardGranted !== true) {
+                await grantCombatRewards(tx, playerRecord.entityId, meta);
+            }
+            const maxRoundsStored = 50;
+            if (meta.rounds.length > maxRoundsStored)
+                meta.rounds = meta.rounds.slice(-maxRoundsStored);
             await tx.combat.update({
                 where: { id: combat.id },
                 data: {

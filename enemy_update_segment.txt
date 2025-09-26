@@ -1,0 +1,22 @@
+      await tx.combatParticipant.update({
+        where: { id: enemyRecord.id },
+        data: {
+          tileX: enemyPositionUpdated.x,
+          tileY: enemyPositionUpdated.y,
+          hpCurrent: clampHp(enemySnapshot.current.hp),
+          snapshotJson: {
+            ...enemySnapshot,
+            current: {
+              hp: enemySnapshot.current.hp,
+              mana: enemySnapshot.current.mana,
+              position: enemyPositionUpdated,
+            },
+            initial: {
+              hp: enemySnapshot.initial.hp,
+              mana: enemySnapshot.initial.mana,
+              position: clonePosition(enemySnapshot.initial.position),
+            },
+          },
+        },
+      })
+

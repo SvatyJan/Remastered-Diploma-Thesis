@@ -1,0 +1,47 @@
+    let combatStatus: 'active' | 'finished' = 'active'
+    let winningTeam: number | null = null
+    let summaryWinner: 'player' | 'enemy' | null = null
+
+    if (enemySnapshot.current.hp <= 0) {
+      combatStatus = 'finished'
+      winningTeam = playerRecord.team
+      summaryWinner = 'player'
+      meta.turn = 'finished'
+      appendRoundLog(meta, `${logPlayerName} is victorious!`)
+    } else {
+      meta.turn = 'enemy'
+
+      const enemyOptions = computeAvailableActions(enemySnapshot, playerSnapshot, playerRecord.id)
+      if (enemyOptions.canAttack) {
+        applyAttack(logEnemyName, enemySnapshot, playerSnapshot)
+      } else if (enemyOptions.canMove) {
+        const sortedMoves = enemyOptions.movePositions
+          .slice()
+          .sort(
+            (a, b) =>
+              chebyshevDistance(a, playerSnapshot.current.position) -
+              chebyshevDistance(b, playerSnapshot.current.position),
+          )
+        const target = sortedMoves[0] ?? enemyOptions.movePositions[0]
+        if (target) {
+          enemySnapshot.current.position = clonePosition(target)
+          appendRoundLog(meta, `${logEnemyName} moved to (${target.x + 1}, ${target.y + 1}).`)
+        } else {
+          appendRoundLog(meta, `${logEnemyName} waited.`)
+        }
+      } else {
+        appendRoundLog(meta, `${logEnemyName} waited.`)
+      }
+
+      if (playerSnapshot.current.hp <= 0) {
+        combatStatus = 'finished'
+        winningTeam = enemyRecord.team
+        summaryWinner = 'enemy'
+        meta.turn = 'finished'
+        appendRoundLog(meta, `${logEnemyName} wins the duel.`)
+      } else {
+        meta.turn = 'player'
+        meta.round += 1
+      }
+    }
+

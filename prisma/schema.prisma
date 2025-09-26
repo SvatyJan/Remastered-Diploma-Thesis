@@ -84,6 +84,19 @@ enum ActionType {
   custom
 }
 
+enum SpellCastType {
+  point_click
+  area
+  self
+}
+
+enum SpellTarget {
+  enemy
+  ally
+  ground
+  self
+}
+
 // ---------- MODELS ----------
 model Ancestry {
   id          BigInt      @id @default(autoincrement())
@@ -313,13 +326,34 @@ model Spell {
   cooldown    Int     @default(0)
   slotCode    String  @map("slot_code") @db.VarChar(32) @default("spell")
   imageId     BigInt? @map("image_id")
+  castType    SpellCastType @default(point_click) @map("cast_type")
+  target      SpellTarget   @default(enemy)
+  range       Int           @default(1)
+  areaRange   Int           @default(0) @map("area_range")
+  damage      Int           @default(0)
+  manaCost    Int           @default(0) @map("mana_cost")
 
   image     Image?                      @relation(fields: [imageId], references: [id], onDelete: SetNull, onUpdate: Cascade, map: "fk_spell_image")
   slot      SpellSlotType               @relation(fields: [slotCode], references: [code], onDelete: Restrict, onUpdate: Cascade)
   spellbook CharacterSpellbook[]
   loadouts  CharacterSpellbookLoadout[]
+  effects   SpellEffect[]
 
   @@map("spell")
+}
+
+model SpellEffect {
+  spellId        BigInt @map("spell_id")
+  effectId       BigInt @map("effect_id")
+  durationRounds Int    @default(0) @map("duration_rounds")
+  magnitude      Int    @default(0)
+  dataJson       Json?  @map("data_json")
+
+  spell  Spell  @relation(fields: [spellId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  effect Effect @relation(fields: [effectId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([spellId, effectId])
+  @@map("spell_effect")
 }
 
 model SpellSlotType {
@@ -504,6 +538,7 @@ model Effect {
   dataJson              Json?      @map("data_json")
 
   combatEffects CombatEffect[]
+  spells        SpellEffect[]
 
   @@map("effect")
 }

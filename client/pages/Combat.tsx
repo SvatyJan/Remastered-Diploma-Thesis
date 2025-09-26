@@ -20,12 +20,25 @@ type CombatParticipantDto = {
 
 type CombatRoundLog = { round: number; log: string[] }
 
+type CombatAvailableSpell = {
+  id: number
+  name: string
+  castType: string
+  target: string
+  range: number
+  areaRange: number
+  manaCost: number
+  damage: number
+  effects: Array<{ effectId: number; effectCode: string; durationRounds: number; magnitude: number }>
+}
+
 type CombatAvailableActions = {
   canMove: boolean
   movePositions: Position[]
   canAttack: boolean
   attackTargets: number[]
   canWait: boolean
+  spells: CombatAvailableSpell[]
 }
 
 type CombatSpell = {
@@ -35,6 +48,13 @@ type CombatSpell = {
   description: string | null
   cooldown: number
   slotCode: string
+  castType: string
+  target: string
+  range: number
+  areaRange: number
+  damage: number
+  manaCost: number
+  effects: Array<{ effectId: number; effectCode: string; durationRounds: number; magnitude: number }>
 }
 
 type CombatMeta = {
@@ -42,6 +62,8 @@ type CombatMeta = {
   monsterRarity?: string
   monsterDescription?: string | null
   playerCharacterName?: string
+  rewardGranted?: boolean
+  reward?: { gold?: number | null; itemTemplateId?: number | null; itemName?: string | null } | null
 }
 
 type CombatDetails = {
@@ -157,6 +179,26 @@ function normalizeCombatResponse(raw: any): CombatDetails {
       ? actionsRaw.attackTargets.map((value: any) => Number(value)).filter((value: number) => Number.isFinite(value))
       : [],
     canWait: Boolean(actionsRaw?.canWait),
+    spells: Array.isArray(actionsRaw?.spells)
+      ? actionsRaw.spells.map((spell: any) => ({
+          id: Number(spell?.id ?? 0),
+          name: String(spell?.name ?? 'Spell'),
+          castType: String(spell?.castType ?? 'point_click'),
+          target: String(spell?.target ?? 'enemy'),
+          range: Number(spell?.range ?? 1),
+          areaRange: Number(spell?.areaRange ?? 0),
+          manaCost: Number(spell?.manaCost ?? 0),
+          damage: Number(spell?.damage ?? 0),
+          effects: Array.isArray(spell?.effects)
+            ? spell.effects.map((effect: any) => ({
+                effectId: Number(effect?.effectId ?? 0),
+                effectCode: String(effect?.effectCode ?? 'unknown'),
+                durationRounds: Number(effect?.durationRounds ?? 0),
+                magnitude: Number(effect?.magnitude ?? 0),
+              }))
+            : [],
+        }))
+      : [],
   }
 
   const playerSpells: CombatSpell[] = Array.isArray(raw?.playerSpells)
@@ -167,10 +209,58 @@ function normalizeCombatResponse(raw: any): CombatDetails {
         description: spell?.description != null ? String(spell.description) : null,
         cooldown: Number(spell?.cooldown ?? 0),
         slotCode: String(spell?.slotCode ?? 'spell'),
+        castType: String(spell?.castType ?? 'point_click'),
+        target: String(spell?.target ?? 'enemy'),
+        range: Number(spell?.range ?? 1),
+        areaRange: Number(spell?.areaRange ?? 0),
+        damage: Number(spell?.damage ?? 0),
+        manaCost: Number(spell?.manaCost ?? 0),
+        effects: Array.isArray(spell?.effects)
+          ? spell.effects.map((effect: any) => ({
+              effectId: Number(effect?.effectId ?? 0),
+              effectCode: String(effect?.effectCode ?? 'unknown'),
+              durationRounds: Number(effect?.durationRounds ?? 0),
+              magnitude: Number(effect?.magnitude ?? 0),
+            }))
+          : [],
       }))
     : []
 
-  const meta: CombatMeta = raw?.meta && typeof raw.meta === 'object' ? { ...raw.meta } : {}
+  const metaRaw = raw?.meta && typeof raw.meta === 'object' ? raw.meta : null
+  const rewardRaw = metaRaw && typeof metaRaw.reward === 'object' ? metaRaw.reward : null
+  const reward = rewardRaw
+    ? {
+        gold:
+          rewardRaw.gold != null && Number.isFinite(Number(rewardRaw.gold))
+            ? Number(rewardRaw.gold)
+            : undefined,
+        itemTemplateId:
+          rewardRaw.itemTemplateId != null && Number.isFinite(Number(rewardRaw.itemTemplateId))
+            ? Number(rewardRaw.itemTemplateId)
+            : undefined,
+        itemName:
+          rewardRaw.itemName != null && rewardRaw.itemName !== ''
+            ? String(rewardRaw.itemName)
+            : undefined,
+      }
+    : null
+
+  const meta: CombatMeta = metaRaw
+    ? {
+        monsterName:
+          typeof metaRaw.monsterName === 'string' ? metaRaw.monsterName : undefined,
+        monsterRarity:
+          typeof metaRaw.monsterRarity === 'string' ? metaRaw.monsterRarity : undefined,
+        monsterDescription:
+          metaRaw.monsterDescription != null ? String(metaRaw.monsterDescription) : undefined,
+        playerCharacterName:
+          typeof metaRaw.playerCharacterName === 'string'
+            ? metaRaw.playerCharacterName
+            : undefined,
+        rewardGranted: Boolean(metaRaw.rewardGranted ?? (reward ? true : false)),
+        reward,
+      }
+    : {}
 
   return {
     id: Number(raw?.id ?? 0),
@@ -201,7 +291,8 @@ export default function CombatPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [state, setState] = React.useState<CombatState>({ status: 'loading' })
-  const [selectedAction, setSelectedAction] = React.useState<'move' | 'attack' | null>(null)
+  const [selectedAction, setSelectedAction] = React.useState<'move' | 'attack' | 'spell' | null>(null)
+  const [selectedSpellId, setSelectedSpellId] = React.useState<number | null>(null)
   const [pending, setPending] = React.useState(false)
   const [actionError, setActionError] = React.useState<string | null>(null)
   const [reloadToken, setReloadToken] = React.useState(0)
@@ -270,13 +361,33 @@ export default function CombatPage() {
 
   React.useEffect(() => {
     if (state.status !== 'success') return
-    if (state.data.turn !== 'player') setSelectedAction(null)
+    if (state.data.turn !== 'player') {
+      setSelectedAction(null)
+      setSelectedSpellId(null)
+    }
   }, [state])
+
+  React.useEffect(() => {
+    if (state.status !== 'success') return
+    if (selectedAction !== 'spell' || selectedSpellId == null) return
+    const stillAvailable = state.data.availableActions.spells.some(
+      (entry) => entry.id === selectedSpellId,
+    )
+    if (!stillAvailable) {
+      setSelectedAction(null)
+      setSelectedSpellId(null)
+    }
+  }, [state, selectedAction, selectedSpellId])
 
   const handleRefresh = () => setReloadToken((value) => value + 1)
 
   const isPlayersTurn =
     state.status === 'success' && state.data.status === 'active' && state.data.turn === 'player'
+
+  const rewardInfo =
+    state.status === 'success' && state.data.status === 'finished' && state.data.meta?.rewardGranted
+      ? state.data.meta.reward ?? null
+      : null
 
   const sendAction = React.useCallback(
     async (payload: Record<string, unknown>) => {
@@ -304,6 +415,7 @@ export default function CombatPage() {
         }
         setState({ status: 'success', data: normalizeCombatResponse(body) })
         setSelectedAction(null)
+        setSelectedSpellId(null)
       } catch (err: any) {
         setActionError(err?.message ?? 'Action failed.')
       } finally {
@@ -331,6 +443,37 @@ export default function CombatPage() {
     sendAction({ action: 'wait' })
   }, [isPlayersTurn, pending, sendAction])
 
+  const handleSpellSelect = React.useCallback(
+    (spellId: number) => {
+      if (!isPlayersTurn || pending || state.status !== 'success') return
+      const available = state.data.availableActions.spells.some((spell) => spell.id === spellId)
+      if (!available) {
+        setActionError('Spell cannot be cast right now.')
+        return
+      }
+      if (selectedAction === 'spell' && selectedSpellId === spellId) {
+        setSelectedAction(null)
+        setSelectedSpellId(null)
+      } else {
+        setSelectedAction('spell')
+        setSelectedSpellId(spellId)
+        setActionError(null)
+      }
+    },
+    [isPlayersTurn, pending, state, selectedAction, selectedSpellId],
+  )
+
+  const handleSpellTarget = React.useCallback(
+    (participantId: number) => {
+      if (!isPlayersTurn || pending || selectedSpellId == null) return
+      if (state.status !== 'success') return
+      const available = state.data.availableActions.spells.some((spell) => spell.id === selectedSpellId)
+      if (!available) return
+      sendAction({ action: 'spell', spellId: selectedSpellId, target: { participantId } })
+    },
+    [isPlayersTurn, pending, selectedSpellId, sendAction, state],
+  )
+
   const boardContent = React.useMemo(() => {
     if (state.status !== 'success') return null
     const { data } = state
@@ -342,6 +485,54 @@ export default function CombatPage() {
     const attackTargets = new Set(
       selectedAction === 'attack' ? data.availableActions.attackTargets : [],
     )
+
+    const selectedSpell =
+      selectedSpellId != null
+        ? data.playerSpells.find((spell) => spell.id === selectedSpellId) ?? null
+        : null
+    const selectedAvailableSpell =
+      selectedSpellId != null
+        ? data.availableActions.spells.find((spell) => spell.id === selectedSpellId) ?? null
+        : null
+    const playerParticipant =
+      data.participants.find(
+        (participant) =>
+          !participant.isAi && (data.playerTeam == null || participant.team === data.playerTeam),
+      ) ?? data.participants.find((participant) => !participant.isAi) ?? null
+
+    const spellTargetIds = new Set<number>()
+    if (
+      selectedAction === 'spell' &&
+      selectedSpell &&
+      selectedAvailableSpell &&
+      playerParticipant
+    ) {
+      const playerPosition = playerParticipant.current?.position ?? playerParticipant.position
+      const inRange = (position: Position) => {
+        const dx = Math.abs(position.x - playerPosition.x)
+        const dy = Math.abs(position.y - playerPosition.y)
+        return Math.max(dx, dy) <= selectedSpell.range
+      }
+
+      for (const participant of data.participants) {
+        const targetPosition = participant.current?.position ?? participant.position
+        if (!inRange(targetPosition)) continue
+        if (participant.current?.hp != null && participant.current.hp <= 0) continue
+
+        if (selectedSpell.target === 'enemy' && participant.isAi) {
+          spellTargetIds.add(participant.id)
+          continue
+        }
+        if (selectedSpell.target === 'ally' && !participant.isAi) {
+          spellTargetIds.add(participant.id)
+          continue
+        }
+        if (selectedSpell.target === 'self' && playerParticipant.id === participant.id) {
+          spellTargetIds.add(participant.id)
+          continue
+        }
+      }
+    }
 
     const participantByPosition = new Map<string, CombatParticipantDto>()
     for (const participant of data.participants) {
@@ -355,23 +546,29 @@ export default function CombatPage() {
         const key = `${x}:${y}`
         const participant = participantByPosition.get(key)
         const isMoveOption = moveKeys.has(key)
-        const occupantIsEnemy = participant?.isAi ?? false
         const canSelectEnemy =
           selectedAction === 'attack' && participant && attackTargets.has(participant.id)
+        const isSpellTarget =
+          selectedAction === 'spell' && participant ? spellTargetIds.has(participant.id) : false
 
         const tileHandlers: { onClick?: () => void } = {}
         if (isMoveOption) {
           tileHandlers.onClick = () => handleMoveSelect({ x, y })
         } else if (canSelectEnemy) {
           tileHandlers.onClick = handleAttack
+        } else if (isSpellTarget && participant) {
+          tileHandlers.onClick = () => handleSpellTarget(participant.id)
         }
 
         const tokenTooltip = participant
-          ? `${participant.name}\nHP ${participant.current.hp}/${participant.initial.hp}\nMana ${
+          ? `${participant.name}
+HP ${participant.current.hp}/${participant.initial.hp}
+Mana ${
               participant.current.mana != null
                 ? `${participant.current.mana}/${participant.initial.mana ?? participant.stats.manaMax}`
-                : '—'
-            }\nSTR ${participant.stats.str} · AGI ${participant.stats.agi} · INT ${participant.stats.int} · SPD ${participant.stats.spd}`
+                : '-'
+            }
+STR ${participant.stats.str} | AGI ${participant.stats.agi} | INT ${participant.stats.int} | SPD ${participant.stats.spd}`
           : ''
 
         rows.push(
@@ -379,16 +576,24 @@ export default function CombatPage() {
             key={key}
             style={{
               ...tile,
-              cursor: isMoveOption || canSelectEnemy ? 'pointer' : 'default',
+              cursor:
+                isMoveOption || canSelectEnemy || isSpellTarget ? 'pointer' : 'default',
               background:
                 selectedAction === 'move' && isMoveOption
                   ? 'rgba(46, 204, 113, 0.25)'
                   : selectedAction === 'attack' && canSelectEnemy
                   ? 'rgba(231, 76, 60, 0.25)'
+                  : selectedAction === 'spell' && isSpellTarget
+                  ? 'rgba(155, 89, 182, 0.25)'
                   : (x + y) % 2 === 0
                   ? 'rgba(255,255,255,0.03)'
                   : 'rgba(255,255,255,0.06)',
-              borderColor: canSelectEnemy ? '#e74c3c' : 'rgba(255,255,255,0.08)',
+              borderColor:
+                canSelectEnemy
+                  ? '#e74c3c'
+                  : selectedAction === 'spell' && isSpellTarget
+                  ? '#9b59b6'
+                  : 'rgba(255,255,255,0.08)',
             }}
             {...tileHandlers}
             title={tokenTooltip}
@@ -407,19 +612,87 @@ export default function CombatPage() {
       }
     }
     return rows
-  }, [state, selectedAction, handleMoveSelect, handleAttack])
+  }, [state, selectedAction, selectedSpellId, handleMoveSelect, handleAttack, handleSpellTarget])
 
   const renderSpells = (spells: CombatSpell[]) => {
     if (!spells.length) return <p style={subtleText}>No combat spells equipped.</p>
+    const availableMap =
+      state.status === 'success'
+        ? new Map(state.data.availableActions.spells.map((spell) => [spell.id, spell]))
+        : new Map<number, CombatAvailableSpell>()
+    const playerParticipant =
+      state.status === 'success'
+        ? state.data.participants.find(
+            (participant) =>
+              !participant.isAi &&
+              (state.data.playerTeam == null || participant.team === state.data.playerTeam),
+          ) ?? state.data.participants.find((participant) => !participant.isAi) ?? null
+        : null
+
     return (
       <div style={spellList}>
-        {spells.map((spell) => (
-          <div key={spell.id} style={spellCard} title={spell.description ?? undefined}>
-            <strong>{spell.name}</strong>
-            <span style={spellMeta}>Cooldown {spell.cooldown}</span>
-            <span style={spellMeta}>Slot {spell.slotCode}</span>
-          </div>
-        ))}
+        {spells.map((spell) => {
+          const availableDetails = availableMap.get(spell.id) ?? null
+          const isSelected = selectedAction === 'spell' && selectedSpellId === spell.id
+          const currentMana =
+            playerParticipant?.current?.mana != null ? playerParticipant.current.mana : null
+          const hasMana = currentMana == null ? true : currentMana >= spell.manaCost
+          const canCast = !!availableDetails && hasMana && isPlayersTurn && !pending
+          const disabledReason = !availableDetails
+            ? 'Not available this turn'
+            : !hasMana
+            ? 'Not enough mana'
+            : !isPlayersTurn
+            ? 'Not your turn'
+            : pending
+            ? 'Action in progress'
+            : ''
+
+          return (
+            <div
+              key={spell.id}
+              style={{
+                ...spellCard,
+                ...(isSelected ? spellCardActive : {}),
+                opacity: canCast || isSelected ? 1 : 0.65,
+              }}
+              title={spell.description ?? undefined}
+            >
+              <strong>{spell.name}</strong>
+              <span style={spellMeta}>
+                Range {spell.range} | Mana {spell.manaCost} | Damage {spell.damage} + INT
+              </span>
+              <span style={spellMeta}>Cooldown {spell.cooldown}</span>
+              {spell.effects.length > 0 && (
+                <span style={spellMeta}>
+                  Effects:{' '}
+                  {spell.effects
+                    .map((effect) =>
+                      effect.effectCode
+                        ? `${effect.effectCode} (${effect.durationRounds}r)`
+                        : `Effect ${effect.effectId}`,
+                    )
+                    .join(', ')}
+                </span>
+              )}
+              {!canCast && !isSelected && disabledReason && (
+                <span style={spellDisabledText}>{disabledReason}</span>
+              )}
+              <button
+                type='button'
+                style={{
+                  ...spellCastButton,
+                  ...(isSelected ? spellCastButtonActive : {}),
+                  ...(canCast || isSelected ? {} : spellCastButtonDisabled),
+                }}
+                disabled={!canCast && !isSelected}
+                onClick={() => handleSpellSelect(spell.id)}
+              >
+                {isSelected ? 'Cancel' : 'Cast'}
+              </button>
+            </div>
+          )
+        })}
       </div>
     )
   }
@@ -449,13 +722,24 @@ export default function CombatPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                 <h1 style={{ margin: 0 }}>Combat</h1>
                 <p style={statusLine}>
-                  Status: <strong>{state.data.status}</strong> · Round {state.data.currentRound} · Turn{' '}
+                  Status: <strong>{state.data.status}</strong> - Round {state.data.currentRound} - Turn{' '}
                   {state.data.turn}
                 </p>
                 {state.data.meta?.monsterName && (
                   <p style={statusLine}>
                     Opponent: {state.data.meta.monsterName}
-                    {state.data.meta.monsterRarity ? ` · ${state.data.meta.monsterRarity}` : ''}
+                    {state.data.meta.monsterRarity ? ` (${state.data.meta.monsterRarity})` : ''}
+                  </p>
+                )}
+                {rewardInfo && (
+                  <p style={statusLine}>
+                    Reward:{' '}
+                    {[
+                      rewardInfo.gold != null ? `+${rewardInfo.gold} gold` : null,
+                      rewardInfo.itemName ?? null,
+                    ]
+                      .filter(Boolean)
+                      .join(' and ')}
                   </p>
                 )}
               </div>
@@ -490,9 +774,10 @@ export default function CombatPage() {
                     ...(selectedAction === 'move' ? actionButtonActive : {}),
                   }}
                   disabled={!isPlayersTurn || !state.data.availableActions.canMove || pending}
-                  onClick={() =>
+                  onClick={() => {
+                    setSelectedSpellId(null)
                     setSelectedAction((prev) => (prev === 'move' ? null : 'move'))
-                  }
+                  }}
                 >
                   Move
                 </button>
@@ -503,9 +788,10 @@ export default function CombatPage() {
                     ...(selectedAction === 'attack' ? actionButtonActive : {}),
                   }}
                   disabled={!isPlayersTurn || !state.data.availableActions.canAttack || pending}
-                  onClick={() =>
+                  onClick={() => {
+                    setSelectedSpellId(null)
                     setSelectedAction((prev) => (prev === 'attack' ? null : 'attack'))
-                  }
+                  }}
                 >
                   Attack
                 </button>
@@ -524,6 +810,9 @@ export default function CombatPage() {
             <section style={spellSection}>
               <h2 style={sectionHeading}>Spells</h2>
               {renderSpells(state.data.playerSpells)}
+              {selectedAction === 'spell' && selectedSpellId != null && (
+                <p style={subtleText}>Select a highlighted target on the board to cast the spell.</p>
+              )}
             </section>
 
             <section style={logSection}>
@@ -620,6 +909,30 @@ const spellCard: React.CSSProperties = {
   gap: 4,
 }
 const spellMeta: React.CSSProperties = { fontSize: 12, color: 'rgba(255,255,255,0.6)' }
+const spellCardActive: React.CSSProperties = {
+  borderColor: '#5dade2',
+  boxShadow: '0 0 10px rgba(93, 173, 226, 0.35)',
+}
+const spellCastButton: React.CSSProperties = {
+  marginTop: 8,
+  alignSelf: 'flex-start',
+  background: '#3498db',
+  border: 'none',
+  borderRadius: 6,
+  padding: '8px 14px',
+  color: '#f5f5f5',
+  cursor: 'pointer',
+  fontWeight: 600,
+}
+const spellCastButtonActive: React.CSSProperties = {
+  background: '#5dade2',
+  color: '#0b0d11',
+}
+const spellCastButtonDisabled: React.CSSProperties = {
+  opacity: 0.5,
+  cursor: 'not-allowed',
+}
+const spellDisabledText: React.CSSProperties = { fontSize: 12, color: 'rgba(255,255,255,0.4)' }
 const logSection: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
