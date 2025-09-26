@@ -17,7 +17,6 @@
     },
     "scripts": {
         "server:start": "node server/dist/index.js",
-        "seed": "node prisma/seed.cjs",
         "build": "vite build",
         "preview": "vite preview",
         "lint": "eslint .",
@@ -27,6 +26,9 @@
         "client:dev": "vite",
         "server:build": "tsc -p server/tsconfig.json",
         "dev": "concurrently -n client,server -c green,cyan \"npm:client:dev\" \"npm:server:dev\""
+    },
+    "prisma": {
+        "seed": "node prisma/seed.cjs"
     },
     "devDependencies": {
         "@types/bcryptjs": "^2.4.6",
