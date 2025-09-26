@@ -4,7 +4,7 @@ import React, {
   useMemo,
   useState,
 } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import GameLayout from '../components/GameLayout'
 import { useRequireGameSession } from '../hooks/useRequireGameSession'
 
@@ -59,6 +59,9 @@ type SpellSlot = {
   spell: Spell | null
 }
 
+type ApiProfession = { id: number; name: string; description: string | null; skill: number }
+type ApiProfessionDefinition = { id: number; name: string; description: string | null }
+
 type TooltipState =
   | { kind: 'item'; id: number; x: number; y: number }
   | { kind: 'spell'; id: number; x: number; y: number }
@@ -77,7 +80,7 @@ type DragPayload =
 
 type DraggingSpellState = { spellId: number; slotCode: string; fromSlot?: { slotCode: string; slotIndex: number } }
 
-type TabKey = 'inventory' | 'spellbook'
+type TabKey = 'inventory' | 'spellbook' | 'profession'
 
 type SlotBlueprint = { slotCode: string; slotIndex: number; slotName: string }
 
@@ -130,6 +133,10 @@ export default function CharacterPage() {
   const [spellSlots, setSpellSlots] = useState<SpellSlot[]>(ensureDefaultSlots([]))
   const [spellLibrary, setSpellLibrary] = useState<Spell[]>([])
   const [spellSearch, setSpellSearch] = useState('')
+  const [profession, setProfession] = useState<ApiProfession | null>(null)
+  const [availableProfessions, setAvailableProfessions] = useState<ApiProfessionDefinition[]>([])
+  const [professionBusy, setProfessionBusy] = useState(false)
+  const [professionError, setProfessionError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [draggingId, setDraggingId] = useState<number | null>(null)
@@ -140,6 +147,7 @@ export default function CharacterPage() {
   const [activeTab, setActiveTab] = useState<TabKey>('inventory')
   const [focusedSlotKey, setFocusedSlotKey] = useState<string | null>(null)
 
+  const navigate = useNavigate()
   const params = useParams<{ id?: string }>()
   const rawParamId = params.id
   const parsedParamId = rawParamId ? Number(rawParamId) : null
@@ -172,6 +180,7 @@ export default function CharacterPage() {
     if (!characterId) return
     setLoading(true)
     setError(null)
+    setProfessionError(null)
     try {
       const token = localStorage.getItem('token')
       if (!token) throw new Error('Missing session token')
@@ -187,9 +196,11 @@ export default function CharacterPage() {
         attributes: ApiAttribute[]
         inventory: ApiInventoryItem[]
         spellbook?: { slots: ApiSpellSlot[]; learned: ApiLearnedSpell[] }
+        profession?: ApiProfession | null
       } = await res.json()
 
       setCharacter(data.character)
+      setProfession(parseCharacterProfession(data.profession))
       setBaseAttributes(mapAttributeList(data.attributes))
       const builtItems = buildItems(data.inventory)
       setItems(builtItems)
@@ -201,6 +212,25 @@ export default function CharacterPage() {
       setDraggingSpell(null)
       setFriendStatus('idle')
       setFriendError(null)
+
+      if (data.character?.isSelf) {
+        try {
+          const profRes = await fetch('/api/professions', {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          if (!profRes.ok) {
+            const payload = await profRes.json().catch(() => ({}))
+            throw new Error(payload?.error ?? 'Failed to load professions')
+          }
+          const payload = await profRes.json()
+          setAvailableProfessions(parseProfessionDefinitions(payload?.items ?? []))
+        } catch (catalogErr: any) {
+          setAvailableProfessions([])
+          setProfessionError(catalogErr?.message ?? 'Failed to load professions')
+        }
+      } else {
+        setAvailableProfessions([])
+      }
     } catch (err: any) {
       setError(err?.message ?? 'Failed to load character')
     } finally {
@@ -215,6 +245,8 @@ export default function CharacterPage() {
   useEffect(() => {
     setFriendStatus('idle')
     setFriendError(null)
+    setProfessionError(null)
+    setProfessionBusy(false)
   }, [characterId])
 
   useEffect(() => {
@@ -488,6 +520,91 @@ export default function CharacterPage() {
     [allowInteraction, characterId, spellSlots, fetchData],
   )
 
+  const handleProfessionSelect = useCallback(
+    async (professionId: number) => {
+      if (!allowInteraction || !characterId) return
+      setProfessionBusy(true)
+      setProfessionError(null)
+      try {
+        const token = localStorage.getItem('token')
+        if (!token) throw new Error('Missing session token')
+        const res = await fetch(`/api/characters/${characterId}/profession`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ professionId }),
+        })
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}))
+          throw new Error(data?.error ?? 'Failed to learn profession')
+        }
+        const payload: { profession: ApiProfession } = await res.json()
+        setProfession(parseCharacterProfession(payload.profession))
+        setActiveTab('profession')
+      } catch (err: any) {
+        setProfessionError(err?.message ?? 'Failed to learn profession')
+      } finally {
+        setProfessionBusy(false)
+      }
+    },
+    [allowInteraction, characterId, setActiveTab],
+  )
+
+  const handleProfessionUnlearn = useCallback(async () => {
+    if (!allowInteraction || !characterId || !profession) return
+    if (!window.confirm(`Opravdu se chces odnaucit ${profession.name}? Progres bude ztracen.`)) return
+    setProfessionBusy(true)
+    setProfessionError(null)
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) throw new Error('Missing session token')
+      const res = await fetch(`/api/characters/${characterId}/profession`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error ?? 'Failed to unlearn profession')
+      }
+      setProfession(null)
+    } catch (err: any) {
+      setProfessionError(err?.message ?? 'Failed to unlearn profession')
+    } finally {
+      setProfessionBusy(false)
+    }
+  }, [allowInteraction, characterId, profession])
+
+  const handleProfessionVisit = useCallback(() => {
+    if (!profession) return
+    navigate(`/profession/${profession.id}`, { state: { professionName: profession.name } })
+  }, [navigate, profession])
+
+  const handleProfessionTrain = useCallback(async () => {
+    if (!allowInteraction || !characterId || !profession) return
+    if (profession.skill >= 300) return
+    setProfessionBusy(true)
+    setProfessionError(null)
+    try {
+      const token = localStorage.getItem('token')
+      if (!token) throw new Error('Missing session token')
+      const nextSkill = Math.min(profession.skill + 1, 300)
+      const res = await fetch(`/api/characters/${characterId}/profession`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ skill: nextSkill }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data?.error ?? 'Failed to train profession')
+      }
+      const payload: { profession: ApiProfession } = await res.json()
+      setProfession(parseCharacterProfession(payload.profession))
+    } catch (err: any) {
+      setProfessionError(err?.message ?? 'Failed to train profession')
+    } finally {
+      setProfessionBusy(false)
+    }
+  }, [allowInteraction, characterId, profession])
+
   const clearSpellSlot = useCallback(
     async (slot: SpellSlot) => {
       if (!allowInteraction || !characterId || !slot.spell) return
@@ -599,8 +716,10 @@ export default function CharacterPage() {
                 : allowInteraction
                 ? activeTab === 'inventory'
                   ? 'Drag items between equipment and inventory.'
-                  : 'Drag & drop spells into your loadout.'
-                : 'Review equipment, attributes, and spells.'}
+                  : activeTab === 'spellbook'
+                  ? 'Drag & drop spells into your loadout.'
+                  : 'Manage your profession.'
+                : 'Review equipment, attributes, spells, and professions.'}
             </p>
           </div>
           {!allowInteraction && character && (
@@ -638,7 +757,7 @@ export default function CharacterPage() {
             onItemHover={onItemHover}
             onItemLeave={onItemLeave}
           />
-        ) : (
+        ) : activeTab === 'spellbook' ? (
           <SpellbookTab
             allowInteraction={allowInteraction}
             slots={spellSlots}
@@ -657,6 +776,19 @@ export default function CharacterPage() {
             onSpellHover={onSpellHover}
             onSpellLeave={clearTooltip}
             onLibraryDrop={handleSpellLibraryDrop}
+          />
+        ) : (
+          <ProfessionTab
+            allowInteraction={allowInteraction}
+            loading={loading}
+            profession={profession}
+            availableProfessions={availableProfessions}
+            error={professionError}
+            busy={professionBusy}
+            onSelect={handleProfessionSelect}
+            onUnlearn={handleProfessionUnlearn}
+            onVisit={handleProfessionVisit}
+            onTrain={handleProfessionTrain}
           />
         )}
 
@@ -711,6 +843,13 @@ function CharacterTabs({ activeTab, onTabChange }: CharacterTabsProps) {
         onClick={() => onTabChange('spellbook')}
       >
         Spellbook
+      </button>
+      <button
+        type="button"
+        style={activeTab === 'profession' ? tabButtonActive : tabButton}
+        onClick={() => onTabChange('profession')}
+      >
+        Profession
       </button>
     </div>
   )
@@ -943,6 +1082,124 @@ function SpellbookTab({
           onSpellLeave={onSpellLeave}
         />
       </div>
+    </section>
+  )
+}
+
+type ProfessionTabProps = {
+  allowInteraction: boolean
+  loading: boolean
+  profession: ApiProfession | null
+  availableProfessions: ApiProfessionDefinition[]
+  error: string | null
+  busy: boolean
+  onSelect: (professionId: number) => void
+  onUnlearn: () => void
+  onVisit: () => void
+  onTrain: () => void
+}
+
+function ProfessionTab({
+  allowInteraction,
+  loading,
+  profession,
+  availableProfessions,
+  error,
+  busy,
+  onSelect,
+  onUnlearn,
+  onVisit,
+  onTrain,
+}: ProfessionTabProps) {
+  const hasProfession = Boolean(profession)
+  const selectableProfessions = availableProfessions.filter((item) =>
+    profession ? item.id !== profession.id : true,
+  )
+  return (
+    <section style={professionSection}>
+      <div style={professionColumns}>
+        <div style={professionCard}>
+          <h2 style={sectionTitle}>Current Profession</h2>
+          {loading ? (
+            <p>Loading profession data...</p>
+          ) : hasProfession && profession ? (
+            <>
+              <div style={professionName}>{profession.name}</div>
+              {profession.description && <p style={professionDescription}>{profession.description}</p>}
+              <div style={professionSkillRow}>
+                <span>{`Skill: ${profession.skill}/300`}</span>
+                <div style={skillBarWrapper}>
+                  <div
+                    style={{
+                      ...skillBarFill,
+                      width: `${Math.max(0, Math.min(100, Math.round((profession.skill / 300) * 100)))}%`,
+                    }}
+                  />
+                </div>
+              </div>
+              <div style={professionActionsRow}>
+                <button type="button" onClick={onVisit} disabled={busy}>
+                  Open Crafting
+                </button>
+                {allowInteraction && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={onTrain}
+                      disabled={busy || profession.skill >= 300}
+                    >
+                      {profession.skill >= 300 ? 'Skill Maxed' : 'Train Skill (+1)'}
+                    </button>
+                    <button type="button" onClick={onUnlearn} disabled={busy}>
+                      Unlearn
+                    </button>
+                  </>
+                )}
+              </div>
+            </>
+          ) : (
+            <p>{allowInteraction ? 'Choose a profession to begin crafting.' : 'No profession selected.'}</p>
+          )}
+        </div>
+        <div style={professionCard}>
+          <h2 style={sectionTitle}>Available Professions</h2>
+          {loading ? (
+            <p>Loading available professions...</p>
+          ) : allowInteraction ? (
+            hasProfession ? (
+              <p>Unlearn your current profession to choose a new one.</p>
+            ) : selectableProfessions.length > 0 ? (
+              <div style={professionList}>
+                {selectableProfessions.map((item) => (
+                  <div key={item.id} style={professionListItem}>
+                    <div>
+                      <div style={professionListName}>{item.name}</div>
+                      {item.description && <div style={professionListDescription}>{item.description}</div>}
+                    </div>
+                    <button type="button" onClick={() => onSelect(item.id)} disabled={busy}>
+                      Learn
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p>No professions available.</p>
+            )
+          ) : availableProfessions.length > 0 ? (
+            <ul style={professionPublicList}>
+              {availableProfessions.map((item) => (
+                <li key={item.id}>
+                  <strong>{item.name}</strong>
+                  {item.description ? ` — ${item.description}` : ''}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>Professions can only be chosen by the owner.</p>
+          )}
+        </div>
+      </div>
+      {error && <div style={professionError}>{error}</div>}
     </section>
   )
 }
@@ -1368,6 +1625,44 @@ function appendSpellToLibraryEnd(library: Spell[], spell: Spell): Spell[] {
   return [...without, spell]
 }
 
+function parseCharacterProfession(raw: any): ApiProfession | null {
+  if (!raw) return null
+  const id = Number(raw?.id ?? raw?.profession?.id ?? 0)
+  if (!Number.isFinite(id) || id <= 0) return null
+  const skillValue = Number(raw?.skill ?? raw?.profession?.skill ?? 0)
+  return {
+    id,
+    name: String(raw?.name ?? raw?.profession?.name ?? 'Unknown'),
+    description:
+      raw?.description !== undefined
+        ? raw.description === null
+          ? null
+          : String(raw.description)
+        : raw?.profession?.description ?? null,
+    skill: clamp(Math.round(skillValue), 1, 300),
+  }
+}
+
+function parseProfessionDefinitions(raw: any): ApiProfessionDefinition[] {
+  if (!Array.isArray(raw)) return []
+  const result: ApiProfessionDefinition[] = []
+  for (const entry of raw) {
+    const id = Number(entry?.id ?? 0)
+    if (!Number.isFinite(id) || id <= 0) continue
+    result.push({
+      id,
+      name: String(entry?.name ?? 'Unknown'),
+      description:
+        entry?.description === undefined
+          ? null
+          : entry.description === null
+          ? null
+          : String(entry.description),
+    })
+  }
+  return result
+}
+
 function toSlotKey(slot: SlotBlueprint | SpellSlot): string {
   return `${slot.slotCode}:${slot.slotIndex}`
 }
@@ -1669,6 +1964,60 @@ const friendButton: React.CSSProperties = {
 }
 const friendSuccess: React.CSSProperties = { color: '#86efac', fontSize: 12 }
 const friendErrorText: React.CSSProperties = { color: '#fca5a5', fontSize: 12 }
+
+
+
+
+const professionSection: React.CSSProperties = {
+  background: 'rgba(24,28,36,0.9)',
+  borderRadius: 20,
+  padding: 24,
+  boxShadow: '0 16px 40px rgba(0,0,0,0.35)',
+  display: 'grid',
+  gap: 24,
+}
+
+const professionColumns: React.CSSProperties = {
+  display: 'grid',
+  gap: 24,
+  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+}
+
+const professionCard: React.CSSProperties = {
+  border: '1px solid #323744',
+  borderRadius: 16,
+  padding: 20,
+  background: 'rgba(12,15,22,0.8)',
+  display: 'grid',
+  gap: 16,
+}
+
+const professionName: React.CSSProperties = { fontSize: 20, fontWeight: 600, color: '#f8fafc' }
+const professionDescription: React.CSSProperties = { margin: 0, color: '#cbd5f5', fontSize: 13 }
+const professionSkillRow: React.CSSProperties = { display: 'grid', gap: 8 }
+const skillBarWrapper: React.CSSProperties = { height: 10, borderRadius: 999, background: 'rgba(59,130,246,0.15)', overflow: 'hidden' }
+const skillBarFill: React.CSSProperties = { height: '100%', background: 'rgba(59,130,246,0.7)' }
+const professionActionsRow: React.CSSProperties = { display: 'flex', gap: 12, flexWrap: 'wrap' }
+const professionList: React.CSSProperties = { display: 'grid', gap: 12 }
+const professionListItem: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: 12,
+  padding: '12px 14px',
+  borderRadius: 12,
+  background: 'rgba(15,18,24,0.7)',
+  border: '1px solid rgba(63,122,195,0.25)',
+}
+const professionListName: React.CSSProperties = { fontWeight: 600, color: '#e2e8f0' }
+const professionListDescription: React.CSSProperties = { fontSize: 12, color: '#94a3b8' }
+const professionPublicList: React.CSSProperties = { display: 'grid', gap: 8, paddingLeft: 18 }
+const professionError: React.CSSProperties = { color: '#fca5a5', fontSize: 13 }
+
+
+
+
+
 
 
 

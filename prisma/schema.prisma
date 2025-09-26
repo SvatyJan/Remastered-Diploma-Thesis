@@ -470,12 +470,13 @@ model Profession {
 model CharacterProfession {
   characterId  BigInt @map("character_id")
   professionId BigInt @map("profession_id")
-  skill        Int    @default(0)
+  skill        Int    @default(1) @db.SmallInt
 
   character  Character  @relation(fields: [characterId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   profession Profession @relation(fields: [professionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@id([characterId, professionId])
+  @@unique([characterId], map: "uq_character_profession_character")
   @@map("character_profession")
 }
 
@@ -681,6 +682,10 @@ model CombatResult {
 
   @@map("combat_result")
 }
+
+
+
+
 
 
 

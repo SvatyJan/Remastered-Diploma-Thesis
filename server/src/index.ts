@@ -55,6 +55,28 @@ type PlayerRecord = {
 
 type ShopTemplateRecord = { id: bigint | number; name: string; slug: string; description: string | null; valueGold: number; slotCode: string | null; inShop: boolean; attributes: Array<{ value: number; attribute: { name: string } }> }
 
+type ProfessionRecord = { id: bigint | number; name: string; description: string | null }
+
+type CharacterProfessionRecord = { skill: number; profession: ProfessionRecord }
+
+function toProfessionDto(record: ProfessionRecord) {
+  return {
+    id: Number(record.id),
+    name: record.name,
+    description: record.description,
+  }
+}
+
+function toCharacterProfessionDto(record: CharacterProfessionRecord) {
+  return {
+    id: Number(record.profession.id),
+    name: record.profession.name,
+    description: record.profession.description,
+    skill: record.skill,
+  }
+}
+
+
 function toUserDto(user: UserRecord) {
   return {
     id: Number(user.id),
@@ -1033,6 +1055,19 @@ app.get('/api/ancestries', authRequired, async (_req: AuthedRequest, res: Respon
       orderBy: { name: 'asc' },
     })
     return res.json({ items: items.map(toAncestryDto) })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.get('/api/professions', authRequired, async (_req: AuthedRequest, res: Response) => {
+  try {
+    const items = await prisma.profession.findMany({
+      select: { id: true, name: true, description: true },
+      orderBy: { name: 'asc' },
+    })
+    return res.json({ items: items.map(toProfessionDto) })
   } catch (err) {
     console.error(err)
     return res.status(500).json({ error: 'Server error' })
@@ -2057,6 +2092,12 @@ app.get('/api/characters/:id', authRequired, async (req: AuthedRequest, res: Res
           },
           orderBy: { dateCreated: 'asc' },
         },
+        professions: {
+          select: {
+            skill: true,
+            profession: { select: { id: true, name: true, description: true } },
+          },
+        },
       },
     })
 
@@ -2067,6 +2108,7 @@ app.get('/api/characters/:id', authRequired, async (req: AuthedRequest, res: Res
       ? character.inventories
       : character.inventories.filter((item) => item.equipped !== null)
     const spellbookState = await loadSpellState(character.id)
+    const professionEntry = character.professions[0] ?? null
 
     return res.json({
       character: {
@@ -2076,6 +2118,7 @@ app.get('/api/characters/:id', authRequired, async (req: AuthedRequest, res: Res
         ancestry: character.ancestry ? toAncestryDto(character.ancestry) : null,
         isSelf,
       },
+      profession: professionEntry ? toCharacterProfessionDto(professionEntry) : null,
       attributes: character.attributes.map(toAttributeDto),
       inventory: inventorySource.map(toInventoryDto),
       spellbook: {
@@ -2315,6 +2358,115 @@ app.delete('/api/characters/:id/spells/:slotCode/:slotIndex', authRequired, asyn
     })
     const spells = await loadSpellState(character.id)
     return res.json(spells)
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.post('/api/characters/:id/profession', authRequired, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = req.userId!
+    const characterId = Number(req.params.id)
+    const professionIdRaw = Number(req.body?.professionId)
+    if (!Number.isInteger(characterId) || characterId <= 0) return res.status(400).json({ error: 'Invalid character id' })
+    if (!Number.isInteger(professionIdRaw) || professionIdRaw <= 0)
+      return res.status(400).json({ error: 'Invalid profession id' })
+
+    const character = await prisma.character.findFirst({
+      where: { id: BigInt(characterId), userId: BigInt(userId), isNpc: false },
+      select: { id: true, professions: { select: { professionId: true }, take: 1 } },
+    })
+    if (!character) return res.status(404).json({ error: 'Character not found' })
+    if (character.professions.length > 0)
+      return res.status(409).json({ error: 'Character already has a profession' })
+
+    const profession = await prisma.profession.findUnique({
+      where: { id: BigInt(professionIdRaw) },
+      select: { id: true, name: true, description: true },
+    })
+    if (!profession) return res.status(404).json({ error: 'Profession not found' })
+
+    try {
+      const created = await prisma.characterProfession.create({
+        data: {
+          characterId: character.id,
+          professionId: profession.id,
+          skill: 1,
+        },
+        select: {
+          skill: true,
+          profession: { select: { id: true, name: true, description: true } },
+        },
+      })
+      return res.status(201).json({ profession: toCharacterProfessionDto(created) })
+    } catch (err) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002')
+        return res.status(409).json({ error: 'Character already has a profession' })
+      throw err
+    }
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.patch('/api/characters/:id/profession', authRequired, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = req.userId!
+    const characterId = Number(req.params.id)
+    const skillRaw = Number(req.body?.skill)
+    if (!Number.isInteger(characterId) || characterId <= 0) return res.status(400).json({ error: 'Invalid character id' })
+    if (!Number.isInteger(skillRaw) || skillRaw < 1 || skillRaw > 300)
+      return res.status(400).json({ error: 'Skill must be between 1 and 300' })
+
+    const character = await prisma.character.findFirst({
+      where: { id: BigInt(characterId), userId: BigInt(userId), isNpc: false },
+      select: { id: true },
+    })
+    if (!character) return res.status(404).json({ error: 'Character not found' })
+
+    const existing = await prisma.characterProfession.findUnique({
+      where: { characterId: character.id },
+      select: {
+        skill: true,
+        profession: { select: { id: true, name: true, description: true } },
+      },
+    })
+    if (!existing) return res.status(404).json({ error: 'Profession not set' })
+    if (existing.skill === skillRaw) return res.json({ profession: toCharacterProfessionDto(existing) })
+
+    const updated = await prisma.characterProfession.update({
+      where: { characterId: character.id },
+      data: { skill: skillRaw },
+      select: {
+        skill: true,
+        profession: { select: { id: true, name: true, description: true } },
+      },
+    })
+    return res.json({ profession: toCharacterProfessionDto(updated) })
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.delete('/api/characters/:id/profession', authRequired, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = req.userId!
+    const characterId = Number(req.params.id)
+    if (!Number.isInteger(characterId) || characterId <= 0) return res.status(400).json({ error: 'Invalid character id' })
+
+    const character = await prisma.character.findFirst({
+      where: { id: BigInt(characterId), userId: BigInt(userId), isNpc: false },
+      select: { id: true },
+    })
+    if (!character) return res.status(404).json({ error: 'Character not found' })
+
+    const result = await prisma.characterProfession.deleteMany({ where: { characterId: character.id } })
+    if (result.count === 0) return res.status(404).json({ error: 'Profession not set' })
+
+    return res.status(204).send()
   } catch (err) {
     console.error(err)
     return res.status(500).json({ error: 'Server error' })

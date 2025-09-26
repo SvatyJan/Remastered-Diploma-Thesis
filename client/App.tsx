@@ -10,6 +10,7 @@ import SocialPage from './pages/Social'
 import ShopPage from './pages/Shop'
 import BattlePage from './pages/Battle'
 import CombatPage from './pages/Combat'
+import ProfessionPage from './pages/Profession'
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/battle" element={<BattlePage />} />
         <Route path="/combat/:id" element={<CombatPage />} />
         <Route path="/shop" element={<ShopPage />} />
+        <Route path="/profession/:id" element={<ProfessionPage />} />
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
@@ -49,3 +51,5 @@ const container: React.CSSProperties = {
   gap: 12,
   fontFamily: 'system-ui, sans-serif',
 }
+
+
