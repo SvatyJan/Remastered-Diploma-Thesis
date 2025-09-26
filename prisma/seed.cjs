@@ -6,6 +6,7 @@ async function main() {
   // --- 1) KATALOGY: Attributes, Ancestry, Professions, Slot types ---
   const attributeNames = [
     'health',
+    'damage',
     'armor',
     'magic resist',
     'strength',
@@ -36,6 +37,7 @@ async function main() {
     { code: 'trinket', name: 'Trinket' },
     { code: 'mainhand', name: 'Main-hand' },
     { code: 'offhand', name: 'Off-hand' },
+    { code: 'twohand', name: 'Two-hand' },
   ];
 
   const spellSlotTypeSeed = [
