@@ -23,6 +23,8 @@ npx prisma migrate dev
 npx prisma generate
 npx prisma db seed
 
+npx prisma migrate reset
+
 # Configure .env with DATABASE_URL if using Prisma later
 DATABASE_URL="mysql://app:app@localhost:3306/rpg"
 SHADOW_DATABASE_URL="mysql://app:app@localhost:3306/rpg_shadow"

@@ -13,6 +13,8 @@ async function main() {
     'agility',
     'intelligence',
     'mana',
+    'crit',
+    'spirit',
   ];
 
   const ancestrySeed = [
@@ -159,7 +161,7 @@ async function main() {
     },
     {
       name: 'Heal',
-      description: 'Heals an ally for 10 + Intelligence.',
+      description: 'Heals an ally for 10 + Spirit.',
       slotCode: 'spell',
       cooldown: 2,
       castType: 'point_click',
@@ -358,6 +360,10 @@ async function main() {
       case 'intelligence': return attrByName['intelligence'].id;
       case 'armor': return attrByName['armor'].id;
       case 'magicresist': return attrByName['magic resist'].id;
+      case 'damage': return attrByName['damage'].id;
+      case 'mana': return attrByName['mana'].id;
+      case 'crit': return attrByName['crit'].id;
+      case 'spirit': return attrByName['spirit'].id;
       default: return null;
     }
   };
