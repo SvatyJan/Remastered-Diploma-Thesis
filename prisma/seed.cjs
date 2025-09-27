@@ -287,10 +287,10 @@ async function main() {
     { name: 'Amulet of Wits', inShop: true, isConsumable: false, isEquipable: true, slotCode: 'neck', rarity: 'rare', valueGold: 90, description: null, stats: { intelligence: 2 } },
     { name: 'Wooden Shield', inShop: true, isConsumable: false, isEquipable: true, slotCode: 'offhand', rarity: 'common', valueGold: 8, description: null, stats: { armor: 2 } },
     { name: 'Kite Shield', inShop: true, isConsumable: false, isEquipable: true, slotCode: 'offhand', rarity: 'uncommon', valueGold: 26, description: null, stats: { armor: 4, magicresist: 1 } },
-    { name: 'Health Potion (Minor)', inShop: true, isConsumable: true, isEquipable: false, slotCode: null, rarity: 'common', valueGold: 5, description: 'Restores health.' },
-    { name: 'Health Potion (Major)', inShop: true, isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 18, description: 'Restores more health.' },
-    { name: 'Stamina Elixir', inShop: true, isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 14, description: 'Boosts agility briefly.' },
-    { name: 'Intellect Tonic', inShop: true, isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 14, description: 'Boosts intelligence briefly.' },
+    { name: 'Health Potion (Minor)', inShop: true, isConsumable: true, isEquipable: false, slotCode: null, rarity: 'common', valueGold: 5, description: 'Restores health.', stats: { health: 5 } },
+    { name: 'Health Potion (Major)', inShop: true, isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 18, description: 'Restores more health.', stats: { health: 5 } },
+    { name: 'Stamina Elixir', inShop: true, isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 14, description: 'Boosts agility briefly.', stats: { health: 1 } },
+    { name: 'Intellect Tonic', inShop: true, isConsumable: true, isEquipable: false, slotCode: null, rarity: 'uncommon', valueGold: 14, description: 'Boosts intelligence briefly.', stats: { intelligence: 1 } },
     { name: 'Elven Longsword', inShop: true, isConsumable: false, isEquipable: true, slotCode: 'twohand', rarity: 'rare', valueGold: 120, description: null, stats: { strength: 4, agility: 2 } },
     { name: 'Runed Circlet', inShop: true, isConsumable: false, isEquipable: true, slotCode: 'head', rarity: 'epic', valueGold: 200, description: null, stats: { intelligence: 4, magicresist: 2 } },
     { name: 'Dreadful Gladiator Helmet', inShop: false, isConsumable: false, isEquipable: true, slotCode: 'head', rarity: 'legendary', valueGold: 1200, description: null, stats: { armor: 25, magicresist: 15, health: 100, strength: 15 } },
@@ -440,3 +440,7 @@ main()
     console.error(e);
     return db.$disconnect().finally(() => process.exit(1));
   });
+
+
+
+

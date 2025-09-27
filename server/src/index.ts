@@ -40,6 +40,7 @@ type InventoryRecord = {
     description: string | null
     slotCode: string | null
     valueGold: number
+    isConsumable: boolean
     attributes: Array<{ value: number; attribute: { name: string } }>
   }
   equipped: { slotCode: string } | null
@@ -58,6 +59,13 @@ type ShopTemplateRecord = { id: bigint | number; name: string; slug: string; des
 type ProfessionRecord = { id: bigint | number; name: string; description: string | null }
 
 type CharacterProfessionRecord = { skill: number; profession: ProfessionRecord }
+
+const CONSUMABLE_FALLBACKS: Record<string, Array<{ attributeName: string; value: number }>> = {
+  'Health Potion (Minor)': [{ attributeName: 'health', value: 5 }],
+  'Health Potion (Major)': [{ attributeName: 'health', value: 5 }],
+  'Stamina Elixir': [{ attributeName: 'health', value: 1 }],
+  'Intellect Tonic': [{ attributeName: 'intelligence', value: 1 }],
+}
 
 function toProfessionDto(record: ProfessionRecord) {
   return {
@@ -108,6 +116,7 @@ function toInventoryDto(item: InventoryRecord) {
     slug: item.template.slug,
     description: item.template.description,
     slotCode: item.template.slotCode,
+    isConsumable: item.template.isConsumable,
     allowedSlots: item.template.slotCode ? [item.template.slotCode] : [],
     equippedSlot: item.equipped?.slotCode ?? null,
     modifiers: item.template.attributes.map((attr) => ({
@@ -1099,6 +1108,7 @@ async function loadShopState(characterId: bigint) {
           description: true,
           slotCode: true,
           valueGold: true,
+          isConsumable: true,
           attributes: {
             select: {
               value: true,
@@ -2080,6 +2090,7 @@ app.get('/api/characters/:id', authRequired, async (req: AuthedRequest, res: Res
                 description: true,
                 slotCode: true,
                 valueGold: true,
+                isConsumable: true,
                 attributes: {
                   select: {
                     value: true,
@@ -2202,6 +2213,153 @@ app.delete('/api/characters/:id', authRequired, async (req: AuthedRequest, res: 
 
     await prisma.character.delete({ where: { id: BigInt(characterId) } })
     return res.status(204).send()
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Server error' })
+  }
+})
+
+app.post('/api/characters/:id/inventory/:inventoryId/use', authRequired, async (req: AuthedRequest, res: Response) => {
+  try {
+    const userId = req.userId!
+    const characterId = Number(req.params.id)
+    const inventoryId = Number(req.params.inventoryId)
+    if (!Number.isInteger(characterId) || characterId <= 0)
+      return res.status(400).json({ error: 'Invalid character id' })
+    if (!Number.isInteger(inventoryId) || inventoryId <= 0)
+      return res.status(400).json({ error: 'Invalid inventory id' })
+
+    const character = await prisma.character.findFirst({
+      where: { id: BigInt(characterId), userId: BigInt(userId), isNpc: false },
+      select: { id: true },
+    })
+    if (!character) return res.status(404).json({ error: 'Character not found' })
+
+    const inventory = await prisma.characterInventory.findFirst({
+      where: { id: BigInt(inventoryId), ownerCharacterId: character.id },
+      select: {
+        id: true,
+        amount: true,
+        templateId: true,
+        template: { select: { id: true, name: true, isConsumable: true } },
+      },
+    })
+    if (!inventory) return res.status(404).json({ error: 'Item not found' })
+    if (!inventory.template?.isConsumable)
+      return res.status(400).json({ error: 'Item is not consumable' })
+    if (inventory.amount <= 0)
+      return res.status(400).json({ error: 'Item is out of stock' })
+
+    const templateAttributes = await prisma.itemTemplateAttribute.findMany({
+      where: { itemTemplateId: inventory.templateId },
+      select: {
+        attributeId: true,
+        value: true,
+        attribute: { select: { name: true } },
+      },
+      orderBy: { attribute: { name: 'asc' } },
+    })
+
+    type ResolvedEffect = { attributeId: bigint; attributeName: string; value: number }
+    let resolvedEffects: ResolvedEffect[] = templateAttributes.map((attr) => ({
+      attributeId: attr.attributeId,
+      attributeName: attr.attribute.name,
+      value: attr.value,
+    }))
+
+    if (resolvedEffects.length === 0) {
+      const fallback = CONSUMABLE_FALLBACKS[inventory.template.name] ?? []
+      if (fallback.length) {
+        const requestedNames = Array.from(new Set(fallback.map((entry) => entry.attributeName)))
+        const attributes = await prisma.attribute.findMany({
+          where: { name: { in: requestedNames } },
+          select: { id: true, name: true },
+        })
+        const attrLookup = new Map(attributes.map((record) => [record.name, record.id]))
+        resolvedEffects = fallback
+          .map((entry) => {
+            const attributeId = attrLookup.get(entry.attributeName)
+            if (!attributeId) return null
+            return { attributeId, attributeName: entry.attributeName, value: entry.value }
+          })
+          .filter((entry): entry is ResolvedEffect => Boolean(entry))
+        if (resolvedEffects.length !== fallback.length)
+          return res.status(500).json({ error: 'Missing attribute mapping for consumable' })
+      }
+    }
+
+    if (resolvedEffects.length === 0)
+      return res.status(400).json({ error: 'Consumable has no effect' })
+
+    const appliedModifiers = resolvedEffects.map((effect) => ({
+      name: effect.attributeName,
+      value: effect.value,
+    }))
+
+    const { inventory: updatedInventory, attributes: updatedAttributes } = await prisma.$transaction(
+      async (tx) => {
+        for (const effect of resolvedEffects) {
+          await tx.characterAttribute.upsert({
+            where: { characterId_attributeId: { characterId: character.id, attributeId: effect.attributeId } },
+            update: { value: { increment: effect.value } },
+            create: { characterId: character.id, attributeId: effect.attributeId, value: effect.value },
+          })
+        }
+
+        if (inventory.amount <= 1) {
+          await tx.characterInventory.delete({ where: { id: inventory.id } })
+        } else {
+          await tx.characterInventory.update({
+            where: { id: inventory.id },
+            data: { amount: { decrement: 1 } },
+          })
+        }
+
+        const inventoryRecords = await tx.characterInventory.findMany({
+          where: { ownerCharacterId: character.id },
+          select: {
+            id: true,
+            amount: true,
+            template: {
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+                description: true,
+                slotCode: true,
+                valueGold: true,
+                isConsumable: true,
+                attributes: {
+                  select: {
+                    value: true,
+                    attribute: { select: { name: true } },
+                  },
+                },
+              },
+            },
+            equipped: { select: { slotCode: true } },
+          },
+          orderBy: { dateCreated: 'asc' },
+        })
+
+        const attributeRecords = await tx.characterAttribute.findMany({
+          where: { characterId: character.id },
+          select: {
+            value: true,
+            attribute: { select: { name: true } },
+          },
+          orderBy: { attribute: { name: 'asc' } },
+        })
+
+        return { inventory: inventoryRecords, attributes: attributeRecords }
+      },
+    )
+
+    return res.json({
+      inventory: updatedInventory.map(toInventoryDto),
+      attributes: updatedAttributes.map(toAttributeDto),
+      appliedModifiers,
+    })
   } catch (err) {
     console.error(err)
     return res.status(500).json({ error: 'Server error' })
@@ -2516,3 +2674,9 @@ const PORT = Number(process.env.PORT || 4000)
 app.listen(PORT, () => {
   console.log(`API listening on http://localhost:${PORT}`)
 })
+
+
+
+
+
+
